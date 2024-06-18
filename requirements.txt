@@ -1,0 +1,3 @@
+requests
+python-socketio[client]
+websocket-client
