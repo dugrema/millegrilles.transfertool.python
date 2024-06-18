@@ -8,7 +8,8 @@ import os
 from urllib import parse
 from typing import Optional, Union
 
-from threading import Thread, Event
+from threading import Thread, Event, Lock
+import tkinter as tk
 
 import socketio
 
@@ -26,6 +27,7 @@ class Authentification:
     def __init__(self, stop_event: Event):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__stop_event = stop_event
+
         self.thread = Thread(name="Authentification", target=self.run)
         self.__pret = Event()
         self.__entretien_event = Event()
@@ -48,6 +50,33 @@ class Authentification:
 
         self.__formatteur: Optional[FormatteurMessageMilleGrilles] = None
         self.__validateur: Optional[ValidateurMessage] = None
+
+        self.auth_frame = None
+
+        self.__lock_emit = Lock()
+
+    @property
+    def formatteur(self):
+        return self.__formatteur
+
+    @property
+    def validateur(self):
+        return self.__validateur
+
+    def emit(self, *args, **kwargs):
+        with self.__lock_emit:
+            return self.__sio.emit(*args, **kwargs)
+
+    def call(self, *args, **kwargs):
+        with self.__lock_emit:
+            return self.__sio.call(*args, **kwargs)
+
+    def init_config(self):
+        if self.charger_configuration():
+            self.auth_frame.entry_nomusager.insert(0, self.nom_usager)
+            serveur_url = self.url_fiche_serveur.hostname
+            self.auth_frame.entry_serveur.insert(0, serveur_url)
+            self.auth_frame.btn_connecter_usager()
 
     def charger_configuration(self):
         # Verifier si on a deja une connexion de configuree
@@ -145,6 +174,7 @@ class Authentification:
         if self.__sio:
             self.__sio.disconnect()
             self.__sio = None
+        self.auth_frame.set_etat(False)
 
     def quit(self):
         self.__entretien_event.set()
@@ -170,6 +200,7 @@ class Authentification:
                         if self.__sio:
                             self.__sio.disconnect()
                         self.__sio = None
+                        self.auth_frame.set_etat(False)
 
                 if self.__sio is not None:
                     self.__sio.wait()  # Attendre la fin de la connexion
@@ -227,6 +258,7 @@ class Authentification:
             code_activation = cle_publique[-8:]
             code_activation_ecran = '-'.join([code_activation[0:4], code_activation[4:]])
             self.__logger.debug("Demande enregistrement usager %s avec code %s" % (self.nom_usager, code_activation_ecran))
+            self.auth_frame.set_etat(code_activation=code_activation_ecran)
 
             commande_ajouter_csr = {'nomUsager': self.nom_usager, 'csr': csr_pem}
             sio.emit('ecouterEvenementsActivationFingerprint', {'fingerprintPk': cle_publique}, callback=self.callback_activation)
@@ -248,6 +280,7 @@ class Authentification:
 
         except Exception as e:
             sio.disconnect()
+            self.auth_frame.set_etat(False)
             raise e
 
     def recevoir_certificat(self, data):
@@ -311,48 +344,32 @@ class Authentification:
         self.initialiser_formatteur()
 
         # Recuperer un challenge d'authentification a signer avec le certificat
-        event_attente = Event()
-        reponse_generer = dict()
+        reponse_generer = sio.call('genererChallengeCertificat')
+        self.__logger.debug("Reponse generer : %s" % reponse_generer)
 
-        def cb_reponse_generer(data):
-            self.__logger.debug("Reponse generer : %s" % data)
-            reponse_generer.update(data)
-            event_attente.set()
-
-        sio.emit('genererChallengeCertificat', callback=cb_reponse_generer)
-        if event_attente.wait(timeout=3) is False:
-            raise TimeoutError()
-
-        # Upgrade connexion (signer)
-        event_attente.clear()
-
-        def cb_reponse_upgrade(data):
-            self.__logger.debug("Connecte, upgrade OK. Data:\n%s" % data)
-            enveloppe = asyncio.run(self.__validateur.verifier(data))
-            if 'collections' not in enveloppe.get_roles or Constantes.SECURITE_PRIVE not in enveloppe.get_exchanges:
-                self.__logger.error("Erreur upgrade socket.io : mauvais role/securite cote serveur. Roles: %s, securite: %s" % (
-                    enveloppe.get_roles, enveloppe.get_exchanges))
-                return
-
-            contenu = json.loads(data['contenu'])
-            if contenu.get('ok') is not True:
-                self.__logger.error("Erreur upgrade socket.io : %s" % data)
-                return
-
-            event_attente.set()
-
+        # Effectuer authentification via socket.io
         requete_upgrade = reponse_generer['challengeCertificat']
         requete_upgrade, message_id = self.__formatteur.signer_message(
             Constantes.KIND_COMMANDE, requete_upgrade, 'login', True, 'login')
-
         self.__logger.debug("Upgrade auth socket.io")
-        sio.emit('upgrade', requete_upgrade, callback=cb_reponse_upgrade)
+        reponse_upgrade = sio.call('upgrade', requete_upgrade)
 
-        # Attendre reponse
-        self.__logger.debug("Attente upgrade auth socket.io")
-        if event_attente.wait(timeout=5) is False:
-            raise TimeoutError()
-        self.__logger.debug("Fin attente upgrade auth socket.io")
+        # Verifier reponse
+        self.__logger.debug("Connecte, upgrade OK. Data:\n%s" % reponse_upgrade)
+        enveloppe = asyncio.run(self.__validateur.verifier(reponse_upgrade))
+        if 'collections' not in enveloppe.get_roles or Constantes.SECURITE_PRIVE not in enveloppe.get_exchanges:
+            raise Exception(
+                "Erreur upgrade socket.io : mauvais role/securite cote serveur. Roles: %s, securite: %s" % (
+                    enveloppe.get_roles, enveloppe.get_exchanges))
+
+        contenu = json.loads(reponse_upgrade['contenu'])
+        if contenu.get('ok') is not True:
+            self.__logger.error("Erreur upgrade socket.io : %s" % reponse_upgrade.get('err'))
+            raise Exception('Erreur auth connexion socket.io')
+
+        # Authentification reussie
+        self.auth_frame.set_etat(connecte=True)
+        self.__logger.debug("Upgrade auth socket.io OK")
 
     def initialiser_formatteur(self):
         clecert = self._cle_certificat
@@ -397,3 +414,54 @@ class Authentification:
 
 def generer_csr(nom_usager: str) -> CleCsrGenere:
     return CleCsrGenere.build(nom_usager)
+
+
+class AuthFrame(tk.Frame):
+
+    def __init__(self, auth, *args, **kwargs):
+        self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
+        super().__init__(*args, **kwargs)
+        self.auth = auth
+        self.label_nomusager = tk.Label(master=self, text="Nom usager")
+        self.entry_nomusager = tk.Entry(master=self, width=20)
+        self.label_url_serveur = tk.Label(master=self, text="URL serveur")
+        self.entry_serveur = tk.Entry(master=self, width=60)
+        self.button_connecter = tk.Button(master=self, text="Connecter", command=self.btn_connecter_usager)
+        self.button_deconnecter = tk.Button(master=self, text="Deconnecter",
+                                            command=self.btn_deconnecter_usager)
+
+        self.etat = tk.StringVar(master=self, value='Deconnecte')
+        self.__etat_label = tk.Label(master=self, textvariable=self.etat)
+
+    def pack(self):
+        self.label_nomusager.pack()
+        self.entry_nomusager.pack()
+        self.label_url_serveur.pack()
+        self.entry_serveur.pack()
+        self.button_connecter.pack()
+        self.button_deconnecter.pack()
+        self.__etat_label.pack()
+        super().pack()
+
+    def set_etat(self, connecte=False, code_activation=None):
+        if code_activation:
+            self.etat.set('Code activation : %s' % code_activation)
+            return
+
+        if connecte:
+            self.etat.set('Connecte')
+        else:
+            self.etat.set('Deconnecte')
+
+    def btn_connecter_usager(self):
+        nom_usager = self.entry_nomusager.get()
+        valeur_url = self.entry_serveur.get()
+        self.auth.authentifier(nom_usager, valeur_url)
+        self.set_etat(connecte=True)
+
+    def btn_deconnecter_usager(self):
+        self.auth.effacer_usager()
+        self.auth.deconnecter()
+        self.set_etat(connecte=False)
+        self.__logger.info("Usager deconnecte, configuration supprimee")
+
