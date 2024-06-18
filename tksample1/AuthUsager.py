@@ -54,6 +54,7 @@ class Authentification:
         self.auth_frame = None
 
         self.__lock_emit = Lock()
+        self.connect_event = Event()
 
     @property
     def formatteur(self):
@@ -62,6 +63,10 @@ class Authentification:
     @property
     def validateur(self):
         return self.__validateur
+
+    @property
+    def clecert(self):
+        return self._cle_certificat
 
     def emit(self, *args, **kwargs):
         with self.__lock_emit:
@@ -175,12 +180,14 @@ class Authentification:
             self.__sio.disconnect()
             self.__sio = None
         self.auth_frame.set_etat(False)
+        self.connect_event.clear()
 
     def quit(self):
         self.__entretien_event.set()
         if self.__pret.is_set() is False:
             self.__pret.set()
         self.deconnecter()
+        self.connect_event.set()
 
     def run(self):
         self.__logger.info("Debut thread authentification")
@@ -203,11 +210,13 @@ class Authentification:
                         self.auth_frame.set_etat(False)
 
                 if self.__sio is not None:
+                    self.connect_event.set()  # Declarer la connexion prete a l'utilisation
                     self.__sio.wait()  # Attendre la fin de la connexion
 
                 # Cleanup pour prochaine authentification
                 self.url_fiche_serveur = None
                 self.__pret.clear()
+                self.connect_event.clear()
         finally:
             self.__logger.info("Fin thread authentification")
             if self.__pret.is_set() is True and self.__stop_event.is_set() is False:

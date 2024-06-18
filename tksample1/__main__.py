@@ -4,7 +4,8 @@ import tkinter as tk
 from threading import Event, Thread
 
 from tksample1.AuthUsager import Authentification, AuthFrame
-from tksample1.Navigation import NavigationFrame
+from tksample1.Navigation import Navigation, NavigationFrame
+
 
 class App:
 
@@ -13,7 +14,8 @@ class App:
         self.__stop_event = Event()
         self.__exit_code = 0
         self.auth = Authentification(self.__stop_event)
-        self.window = Window(self.__stop_event, self.auth)
+        self.navigation = Navigation(self.__stop_event, self.auth)
+        self.window = Window(self.__stop_event, self.auth, self.navigation)
 
     def exec(self):
         self.__logger.info("Debut mainloop")
@@ -39,7 +41,7 @@ class App:
 
 class Window(tk.Tk):
 
-    def __init__(self, stop_event: Event, auth: Authentification, *args, **kwargs):
+    def __init__(self, stop_event: Event, auth: Authentification, navigation: Navigation, *args, **kwargs):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__stop_event = stop_event
 
@@ -49,8 +51,12 @@ class Window(tk.Tk):
 
         self.__frame_auth = AuthFrame(auth)
         self.__frame_auth.pack()
+        self.__frame_navigation = NavigationFrame(navigation)
+        self.__frame_navigation.pack()
+
         # Wiring du frame dans Authentification - permet changer affichage
         self.auth.auth_frame = self.__frame_auth
+        navigation.nav_frame = self.__frame_navigation
 
 
 if __name__ == '__main__':
