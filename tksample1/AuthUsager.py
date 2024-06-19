@@ -68,6 +68,10 @@ class Authentification:
     def clecert(self):
         return self._cle_certificat
 
+    @property
+    def url_collections(self):
+        return self.__url_collection
+
     def emit(self, *args, **kwargs):
         with self.__lock_emit:
             return self.__sio.emit(*args, **kwargs)
@@ -332,14 +336,18 @@ class Authentification:
             except TimeoutError:
                 pass
 
+    def get_https_session(self):
+        http_session = requests.Session()
+        http_session.verify = self.__path_ca
+        http_session.cert = (self.__path_cert, self.__path_cle)
+        return http_session
+
     def connecter_socketio(self):
         # Reconnecter socketio par https avec client ssl
         url = self.__url_collection
         connexion_socketio = f'https://{url.hostname}:444'
 
-        http_session = requests.Session()
-        http_session.verify = self.__path_ca
-        http_session.cert = (self.__path_cert, self.__path_cle)
+        http_session = self.get_https_session()
 
         sio = socketio.Client(http_session=http_session)
 
@@ -457,10 +465,13 @@ class AuthFrame(tk.Frame):
             self.etat.set('Code activation : %s' % code_activation)
             return
 
-        if connecte:
-            self.etat.set('Connecte')
-        else:
-            self.etat.set('Deconnecte')
+        try:
+            if connecte:
+                self.etat.set('Connecte')
+            else:
+                self.etat.set('Deconnecte')
+        except RuntimeError:
+            pass  # Fermeture
 
     def btn_connecter_usager(self):
         nom_usager = self.entry_nomusager.get()

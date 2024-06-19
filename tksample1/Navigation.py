@@ -27,11 +27,12 @@ class Repertoire:
 
 class Navigation:
 
-    def __init__(self, stop_event, connexion: Authentification):
+    def __init__(self, stop_event, connexion: Authentification, downloader):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__stop_event = stop_event
         self.frame = None
         self.connexion = connexion
+        self.downloader = downloader
         self.nav_frame = None
 
         self.__event_dirty = Event()
@@ -43,6 +44,9 @@ class Navigation:
 
         self.__thread = Thread(name="Navigation", target=self.run)
         self.__thread.start()
+
+    def quit(self):
+        self.__event_dirty.set()
 
     def changer_cuuid(self, cuuid: Optional[str] = None):
         self.__cuuid_a_charger = cuuid
@@ -101,10 +105,17 @@ class Navigation:
                 return  # Stopping
 
             self.__event_dirty.wait()
+            if self.__stop_event.is_set():
+                return  # Stopping
+
             self.__event_dirty.clear()
 
             # Charger le repertoire
             self.__charger_cuuid()
+
+    def ajouter_download(self, tuuid):
+        fichier = [f for f in self.__repertoire.fichiers if f['tuuid'] == tuuid].pop()
+        self.downloader.ajouter_download(fichier)
 
 
 class NavigationFrame(tk.Frame):
@@ -180,7 +191,7 @@ class NavigationFrame(tk.Frame):
         if values[1] != 'Fichier':
             self.__navigation.changer_cuuid(tuuid)
         else:
-            raise NotImplementedError('todo - download fichier')
+            self.__navigation.ajouter_download(tuuid)
 
 
 def sync_collection(connexion, cuuid: Optional[str] = None):
@@ -245,6 +256,9 @@ def sync_collection(connexion, cuuid: Optional[str] = None):
         metadata_chiffre = fichier['metadata']
         cle_id = metadata_chiffre.get('cle_id') or metadata_chiffre.get('ref_hachage_bytes') or metadata_chiffre['hachage_bytes']
         cle_secrete = cles[cle_id]['cle_secrete']
+
+        fichier['cle_secrete'] = cle_secrete
+
         info_dechiffree = dechiffrer_document_secrete(cle_secrete, metadata_chiffre)
 
         fichier.update(info_dechiffree)
