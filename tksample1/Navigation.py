@@ -27,13 +27,16 @@ class Repertoire:
 
 class Navigation:
 
-    def __init__(self, stop_event, connexion: Authentification, downloader):
+    def __init__(self, stop_event, connexion: Authentification, downloader, uploader):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__stop_event = stop_event
         self.frame = None
         self.connexion = connexion
         self.downloader = downloader
         self.nav_frame = None
+
+        downloader.set_navigation(self)
+        uploader.set_navigation(self)
 
         self.__event_dirty = Event()
 
@@ -114,8 +117,11 @@ class Navigation:
             self.__charger_cuuid()
 
     def ajouter_download(self, tuuid):
-        fichier = [f for f in self.__repertoire.fichiers if f['tuuid'] == tuuid].pop()
-        self.downloader.ajouter_download(fichier)
+        tuuid_node = [f for f in self.__repertoire.fichiers if f['tuuid'] == tuuid].pop()
+        if tuuid_node['type_node'] == 'Fichier':
+            self.downloader.ajouter_download_fichier(tuuid_node)
+        else:
+            self.downloader.ajouter_download_repertoire(tuuid_node)
 
 
 class NavigationFrame(tk.Frame):
@@ -131,6 +137,9 @@ class NavigationFrame(tk.Frame):
         self.__breadcrumb_label = tk.Label(master=self, textvariable=self.breadcrumb, justify="left")
         self.__btn_up = tk.Button(master=self, text="Up", command=self.btn_up_handler)
 
+        self.__btn_download = tk.Button(master=self, text="Download", command=self.btn_download_handler)
+        self.__btn_upload = tk.Button(master=self, text="Upload", command=self.btn_upload_handler)
+
         self.dirlist = ttk.Treeview(master=self, columns=('taille', 'type', 'date'))
         self.dirlist['columns'] = ('taille', 'type', 'date')
 
@@ -143,11 +152,21 @@ class NavigationFrame(tk.Frame):
     def pack(self):
         self.__breadcrumb_label.pack()
         self.__btn_up.pack()
+        self.__btn_download.pack()
+        self.__btn_upload.pack()
         self.dirlist.pack()
         super().pack()
 
     def btn_up_handler(self):
         self.__navigation.naviguer_up()
+
+    def btn_download_handler(self):
+        selection = self.dirlist.selection()
+        for tuuid in selection:
+            self.__navigation.ajouter_download(tuuid)
+
+    def btn_upload_handler(self):
+        pass
 
     def set_breadcrumb(self, breadcrumb: pathlib.Path):
         self.breadcrumb.set(str(breadcrumb))

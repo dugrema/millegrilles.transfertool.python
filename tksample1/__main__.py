@@ -6,6 +6,7 @@ from threading import Event, Thread
 from tksample1.AuthUsager import Authentification, AuthFrame
 from tksample1.Navigation import Navigation, NavigationFrame
 from tksample1.Downloader import Downloader
+from tksample1.Uploader import Uploader
 
 
 class App:
@@ -16,7 +17,8 @@ class App:
         self.__exit_code = 0
         self.auth = Authentification(self.__stop_event)
         self.downloader = Downloader(self.__stop_event, self.auth)
-        self.navigation = Navigation(self.__stop_event, self.auth, self.downloader)
+        self.uploader = Uploader(self.__stop_event, self.auth)
+        self.navigation = Navigation(self.__stop_event, self.auth, self.downloader, self.uploader)
         self.window = Window(self.__stop_event, self.auth, self.navigation)
 
     def exec(self):
@@ -38,6 +40,7 @@ class App:
         self.auth.quit()
         self.navigation.quit()
         self.downloader.quit()
+        self.uploader.quit()
 
         self.__logger.info("Arret complete, exit code : %d" % self.__exit_code)
         exit(self.__exit_code)
