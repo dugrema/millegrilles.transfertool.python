@@ -1,5 +1,7 @@
+import datetime
 import logging
 import uuid
+import pytz
 
 import requests
 import tkinter as tk
@@ -128,7 +130,7 @@ class Uploader:
         cipher = CipherMgs4(cle_ca)
         hacheur = Hacheur(hashing_code='blake2b-512', encoding='base58btc')
 
-        SPLIT_SIZE = 128_000
+        SPLIT_SIZE = 100_000_000
 
         if self.__https_session is None:
             # Initialiser holder de session https
@@ -141,6 +143,8 @@ class Uploader:
             'content-type': 'application/data',
             'x-token-jwt': batch_upload_token['token'],
         }
+
+        debut_upload = datetime.datetime.now()
 
         with open(upload.path, 'rb') as fichier:
             while cipher.hachage is None:
@@ -170,21 +174,6 @@ class Uploader:
             'hachage_original': hachage,
         }
         doc_chiffre = chiffrer_document(cle_secrete, signature_cle.get_cle_ref(), data_dechiffre_transaction)
-        # {
-        #   "cle_id": "zCR7nbmPhCeseeBAsdFtF5ES8cmNRSGUNsBbt8MPLeLNw",
-        #   "cuuid": "83923bf72a78b827996df7c2f8f415beb99751605d941aeab8cc3e0835827f3b",
-        #   "format": "mgs4",
-        #   "fuuid": "zSEfXUBNo43kqfz1jVDwP3KxEAPFHTS9e1EiRADbafLVoVjABSwXxNKJZSWXLJ31WY5ant4vFJ2zjdeHpEcmy7ZYnuWV7N",
-        #   "metadata": {
-        #     "cle_id": "zCR7nbmPhCeseeBAsdFtF5ES8cmNRSGUNsBbt8MPLeLNw",
-        #     "data_chiffre": "bbLOtJGMLfAWRKSo88KW40pU1/bBADQitzKD7HnZN4ppPjfxVUSFSltXTxp9cyu/gHyTVKR1xjClY8PiEag2t3LrkXamcyfI2wGydtEX97OxQ3dnXc31zEqABEaa352F98CFG8/XgSNJS55DxfL3DQfis27Xik18nXPotj8YTdLKnatAYE72OLqbRWNnUh3/iBp1JgDjDEzb7GKSkFJx2bxZOCHs4b129wmcKE25pw",
-        #     "format": "mgs4",
-        #     "nonce": "uwQyT8aoq/1vx0NftZhgnR25Sz0ejQEb"
-        #   },
-        #   "mimetype": "image/jpeg",
-        #   "nonce": "s3xRlsbWt8WZ5jA6/EJMPLp9tsyYbReF",
-        #   "taille": 1385933
-        # }
         transaction = {
             'cle_id': signature_cle.get_cle_ref(),
             'cuuid': upload.cuuid,
@@ -223,6 +212,10 @@ class Uploader:
             raise Exception('Erreur post : %s' % reponse_status)
         else:
             reponse.raise_for_status()
+
+        fin_upload = datetime.datetime.now()
+        duree_upload = fin_upload - debut_upload
+        self.__logger.debug("%s Fin upload %s (%d bytes), duree %s" % (fin_upload, upload.path.name, taille_chiffree, duree_upload))
 
 
 def file_iterator(fp, cipher, hacheur, maxsize):

@@ -153,7 +153,8 @@ class NavigationFrame(tk.Frame):
 
         self.__btn_download = tk.Button(master=self, text="Download", command=self.btn_download_handler)
         self.__btn_upload = tk.Button(master=self, text="Upload", command=self.btn_upload_handler)
-        self.__btn_upload_dir = tk.Button(master=self, text="Upload Dir", command=self.but_upload_dir_handler)
+        self.__btn_upload_dir = tk.Button(master=self, text="Upload Dir", command=self.btn_upload_dir_handler)
+        self.__btn_refresh = tk.Button(master=self, text="Refresh", command=self.btn_refresh)
 
         self.dirlist = ttk.Treeview(master=self, columns=('taille', 'type', 'date'))
         self.dirlist['columns'] = ('taille', 'type', 'date')
@@ -167,6 +168,7 @@ class NavigationFrame(tk.Frame):
     def pack(self):
         self.__breadcrumb_label.pack()
         self.__btn_up.pack()
+        self.__btn_refresh.pack()
         self.__btn_download.pack()
         self.__btn_upload.pack()
         self.__btn_upload_dir.pack()
@@ -186,10 +188,14 @@ class NavigationFrame(tk.Frame):
         for fichier in fichiers:
             self.__navigation.upload_fichier(fichier)
 
-    def but_upload_dir_handler(self):
+    def btn_upload_dir_handler(self):
         path_dir = tkinter.filedialog.askdirectory()
         if path_dir != '':
             self.__navigation.upload_directory(path_dir)
+
+    def btn_refresh(self):
+        cuuid = self.__repertoire.cuuid
+        self.__navigation.changer_cuuid(cuuid)
 
     def set_breadcrumb(self, breadcrumb: pathlib.Path):
         self.breadcrumb.set(str(breadcrumb))
