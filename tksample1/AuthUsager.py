@@ -291,42 +291,42 @@ class Authentification:
     def socketio_requete_certificat(self, url: parse.ParseResult):
         connexion_socketio = f'https://{url.hostname}'
 
-        http_session = requests.Session()
-        sio = socketio.Client(http_session=http_session)
-        http_session.verify = False
-        sio.connect(connexion_socketio, socketio_path='/millegrilles/socket.io')
-        try:
-            # Emettre CSR et attendre activation
-            csr_pem = self.__cle_csr_genere.get_pem_csr()
-            cle_publique = binascii.hexlify(self.__cle_csr_genere.cle_publique).decode('utf-8')
-            code_activation = cle_publique[-8:]
-            code_activation_ecran = '-'.join([code_activation[0:4], code_activation[4:]])
-            self.__logger.debug("Demande enregistrement usager %s avec code %s" % (self.nom_usager, code_activation_ecran))
-            self.auth_frame.set_etat(code_activation=code_activation_ecran)
+        with requests.Session() as http_session:
+            http_session.verify = False
+            sio = socketio.Client(http_session=http_session)
+            sio.connect(connexion_socketio, socketio_path='/millegrilles/socket.io')
+            try:
+                # Emettre CSR et attendre activation
+                csr_pem = self.__cle_csr_genere.get_pem_csr()
+                cle_publique = binascii.hexlify(self.__cle_csr_genere.cle_publique).decode('utf-8')
+                code_activation = cle_publique[-8:]
+                code_activation_ecran = '-'.join([code_activation[0:4], code_activation[4:]])
+                self.__logger.debug("Demande enregistrement usager %s avec code %s" % (self.nom_usager, code_activation_ecran))
+                self.auth_frame.set_etat(code_activation=code_activation_ecran)
 
-            commande_ajouter_csr = {'nomUsager': self.nom_usager, 'csr': csr_pem}
-            sio.emit('ecouterEvenementsActivationFingerprint', {'fingerprintPk': cle_publique}, callback=self.callback_activation)
-            sio.emit('ajouterCsrRecovery', commande_ajouter_csr, callback=self.callback_csr)
+                commande_ajouter_csr = {'nomUsager': self.nom_usager, 'csr': csr_pem}
+                sio.emit('ecouterEvenementsActivationFingerprint', {'fingerprintPk': cle_publique}, callback=self.callback_activation)
+                sio.emit('ajouterCsrRecovery', commande_ajouter_csr, callback=self.callback_csr)
 
-            event_certificat = Event()
+                event_certificat = Event()
 
-            @sio.on('*')
-            def message(event, data):
-                self.__logger.debug('message socket.io : %s\n%s' % (event, data))
-                action = event.split('.')[-1]
-                if action == 'activationFingerprintPk':
-                    self.recevoir_certificat(data)
-                    event_certificat.set()
+                @sio.on('*')
+                def message(event, data):
+                    self.__logger.debug('message socket.io : %s\n%s' % (event, data))
+                    action = event.split('.')[-1]
+                    if action == 'activationFingerprintPk':
+                        self.recevoir_certificat(data)
+                        event_certificat.set()
 
-            # self.__sio.wait()  # Attendre la deconnection - indique qu'on a recu le certificat
-            if event_certificat.wait(timeout=300) is False:
-                raise TimeoutError()
+                # self.__sio.wait()  # Attendre la deconnection - indique qu'on a recu le certificat
+                if event_certificat.wait(timeout=300) is False:
+                    raise TimeoutError()
 
-        except Exception as e:
-            sio.disconnect()
-            http_session.close()
-            self.auth_frame.set_etat(False)
-            raise e
+            except Exception as e:
+                sio.disconnect()
+                # http_session.close()
+                self.auth_frame.set_etat(False)
+                raise e
 
     def recevoir_certificat(self, data):
         message = data['message']
@@ -372,6 +372,7 @@ class Authentification:
     def get_https_session(self):
         http_session = requests.Session()
         http_session.verify = self.__path_ca
+        # http_session.verify = False
         http_session.cert = (self.__path_cert, self.__path_cle)
         return http_session
 
