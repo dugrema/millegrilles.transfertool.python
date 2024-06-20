@@ -20,6 +20,8 @@ from tksample1.AuthUsager import Authentification
 from millegrilles_messages.chiffrage.DechiffrageUtils import dechiffrer_reponse, dechiffrer_document_secrete
 from millegrilles_messages.chiffrage.Mgs4 import chiffrer_document_nouveau
 
+LOGGER = logging.getLogger(__name__)
+
 
 class Repertoire:
 
@@ -259,23 +261,26 @@ def sync_collection(connexion, cuuid: Optional[str] = None):
     limit = 100
     skip = 0
 
-    requete = {
-        'limit': limit,
-        'skip': skip,
-        'cuuid': cuuid,
-    }
+    while True:
+        requete = {
+            'limit': limit,
+            'skip': skip,
+            'cuuid': cuuid,
+        }
 
-    requete_favoris, message_id = connexion.formatteur.signer_message(
-        Constantes.KIND_REQUETE, requete, 'GrosFichiers', True, 'syncCollection')
+        requete_favoris, message_id = connexion.formatteur.signer_message(
+            Constantes.KIND_REQUETE, requete, 'GrosFichiers', True, 'syncCollection')
 
-    reponse_sync = connexion.call('syncCollection', requete_favoris, timeout=5)
-    contenu_sync = json.loads(reponse_sync['contenu'])
+        reponse_sync = connexion.call('syncCollection', requete_favoris, timeout=5)
+        contenu_sync = json.loads(reponse_sync['contenu'])
 
-    if contenu_sync['complete'] is False:
-        raise NotImplementedError('TODO : liste incomplete')
+        fichiers_recus = [f for f in contenu_sync['liste'] if f['supprime'] is False]
+        tuuids = [f['tuuid'] for f in fichiers_recus]
 
-    fichiers_recus = [f for f in contenu_sync['liste'] if f['supprime'] is False]
-    tuuids = [f['tuuid'] for f in fichiers_recus]
+        skip += len(tuuids)
+
+        if contenu_sync['complete'] is True:
+            break
 
     if len(tuuids) == 0:
         # Aucun fichier a charger (repertoire vide)
@@ -315,13 +320,14 @@ def sync_collection(connexion, cuuid: Optional[str] = None):
     for fichier in fichiers:
         metadata_chiffre = fichier['metadata']
         cle_id = metadata_chiffre.get('cle_id') or metadata_chiffre.get('ref_hachage_bytes') or metadata_chiffre['hachage_bytes']
-        cle_secrete = cles[cle_id]['cle_secrete']
-
-        fichier['cle_secrete'] = cle_secrete
-
-        info_dechiffree = dechiffrer_document_secrete(cle_secrete, metadata_chiffre)
-
-        fichier.update(info_dechiffree)
+        try:
+            cle_secrete = cles[cle_id]['cle_secrete']
+        except KeyError:
+            LOGGER.warning('Cle manquante pour %s, SKIP', fichier)
+        else:
+            fichier['cle_secrete'] = cle_secrete
+            info_dechiffree = dechiffrer_document_secrete(cle_secrete, metadata_chiffre)
+            fichier.update(info_dechiffree)
 
     rep = Repertoire(fichiers, cuuid)
 

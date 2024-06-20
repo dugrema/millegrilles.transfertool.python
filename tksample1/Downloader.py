@@ -106,8 +106,10 @@ class Downloader:
                     try:
                         if isinstance(download, DownloadFichier):
                             self.download_fichier(download)
+                            self.__logger.debug("Fin download fichier %s" % download.nom)
                         elif isinstance(download, DownloadRepertoire):
                             self.download_repertoire(download)
+                            self.__logger.debug("Fin download repertoire %s" % download.nom)
                         else:
                             self.__logger.error("Type download non supporte : %s" % download)
                     except Exception:
@@ -124,11 +126,15 @@ class Downloader:
         for t in rep.fichiers:
             type_node = t['type_node']
             if type_node == 'Fichier':
-                download_fichier = DownloadFichier(t, path_destination)
                 try:
-                    self.download_fichier(download_fichier)
-                except FileExistsError:
-                    pass  # OK
+                    download_fichier = DownloadFichier(t, path_destination)
+                except KeyError:
+                    self.__logger.warning("Cle fichier manquante, skip : %s" % t)
+                else:
+                    try:
+                        self.download_fichier(download_fichier)
+                    except FileExistsError:
+                        pass  # OK
             else:
                 # Download recursif des sous-repertoires
                 download_repertoire = DownloadRepertoire(t, path_destination)
