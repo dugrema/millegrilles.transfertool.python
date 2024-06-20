@@ -1,5 +1,6 @@
 import logging
 import tkinter as tk
+import tkinter.filedialog
 from tkinter import ttk
 import json
 import multibase
@@ -33,6 +34,7 @@ class Navigation:
         self.frame = None
         self.connexion = connexion
         self.downloader = downloader
+        self.uploader = uploader
         self.nav_frame = None
 
         downloader.set_navigation(self)
@@ -123,6 +125,18 @@ class Navigation:
         else:
             self.downloader.ajouter_download_repertoire(tuuid_node)
 
+    def upload_fichier(self, path_fichier: str):
+        cuuid = self.__repertoire.cuuid
+        if cuuid is None:
+            raise Exception('Upload dans Favoris non supporte')
+        self.uploader.ajouter_upload(cuuid, path_fichier)
+
+    def upload_directory(self, path_dir: str):
+        cuuid = self.__repertoire.cuuid
+        if cuuid is None:
+            raise Exception('Upload dans Favoris non supporte')
+        self.uploader.ajouter_upload(cuuid, path_dir)
+
 
 class NavigationFrame(tk.Frame):
 
@@ -139,6 +153,7 @@ class NavigationFrame(tk.Frame):
 
         self.__btn_download = tk.Button(master=self, text="Download", command=self.btn_download_handler)
         self.__btn_upload = tk.Button(master=self, text="Upload", command=self.btn_upload_handler)
+        self.__btn_upload_dir = tk.Button(master=self, text="Upload Dir", command=self.but_upload_dir_handler)
 
         self.dirlist = ttk.Treeview(master=self, columns=('taille', 'type', 'date'))
         self.dirlist['columns'] = ('taille', 'type', 'date')
@@ -154,6 +169,7 @@ class NavigationFrame(tk.Frame):
         self.__btn_up.pack()
         self.__btn_download.pack()
         self.__btn_upload.pack()
+        self.__btn_upload_dir.pack()
         self.dirlist.pack()
         super().pack()
 
@@ -166,7 +182,14 @@ class NavigationFrame(tk.Frame):
             self.__navigation.ajouter_download(tuuid)
 
     def btn_upload_handler(self):
-        pass
+        fichiers = tkinter.filedialog.askopenfilenames()
+        for fichier in fichiers:
+            self.__navigation.upload_fichier(fichier)
+
+    def but_upload_dir_handler(self):
+        path_dir = tkinter.filedialog.askdirectory()
+        if path_dir != '':
+            self.__navigation.upload_directory(path_dir)
 
     def set_breadcrumb(self, breadcrumb: pathlib.Path):
         self.breadcrumb.set(str(breadcrumb))

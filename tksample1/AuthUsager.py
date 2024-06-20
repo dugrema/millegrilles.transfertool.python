@@ -50,6 +50,7 @@ class Authentification:
 
         self.__formatteur: Optional[FormatteurMessageMilleGrilles] = None
         self.__validateur: Optional[ValidateurMessage] = None
+        self.__ca: Optional[EnveloppeCertificat] = None
 
         self.auth_frame = None
 
@@ -67,6 +68,10 @@ class Authentification:
     @property
     def clecert(self):
         return self._cle_certificat
+
+    @property
+    def ca(self):
+        return self.__ca
 
     @property
     def url_collections(self):
@@ -201,7 +206,13 @@ class Authentification:
                 if self.__stop_event.is_set():
                     return
 
-                urls_collection = self.parse_fiche()
+                try:
+                    urls_collection = self.parse_fiche()
+                except Exception:
+                    self.__logger.exception("Erreur parsing fiche, abort")
+                    self.__pret.clear()
+                    continue
+
                 for url_collection in urls_collection:
                     try:
                         self.connecter(url_collection)
@@ -394,6 +405,7 @@ class Authentification:
         idmg = enveloppe.idmg
 
         ca = EnveloppeCertificat.from_file(self.__path_ca)
+        self.__ca = ca
 
         signateur = SignateurTransactionSimple(clecert)
         formatteur = FormatteurMessageMilleGrilles(idmg, signateur, ca)
@@ -401,6 +413,20 @@ class Authentification:
 
         validateur_certificats = ValidateurCertificatCache(ca)
         self.__validateur = ValidateurMessage(validateur_certificats)
+
+    def get_certificats_chiffrage(self):
+        reponse = self.call('getCertificatsMaitredescles')
+
+        certs = []
+        for c in reponse:
+            cert_pem = '\n'.join(c)
+            cert = EnveloppeCertificat.from_pem(cert_pem)
+            certs.append(cert)
+
+        return certs
+        # requete = {}
+        # self.__formatteur.signer_message(
+        #     Constantes.KIND_REQUETE, requete, 'MaitreDesCles', action='', ajouter_chaine_certs=True)
 
     # def authentifier_session_web(self):
     #     # Dans maitre des comptes, authentifier.js (69)
