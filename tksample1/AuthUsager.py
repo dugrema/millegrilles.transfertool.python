@@ -4,6 +4,7 @@ import requests
 import logging
 import json
 import os
+import pathlib
 
 from urllib import parse
 from typing import Optional, Union
@@ -43,10 +44,16 @@ class Authentification:
         self.thread.start()
         self.__url_collection: Optional[parse.ParseResult] = None
 
-        self.__path_cert = '/tmp/usager.cert'
-        self.__path_cle = '/tmp/usager.cle'
-        self.__path_ca = '/tmp/usager.ca'
-        self.__path_config = '/tmp/config.json'
+        home = pathlib.Path.home()
+        path_millegrilles_folder = pathlib.Path(home, '.millegrilles')
+        path_millegrilles_folder.mkdir(0o750, exist_ok=True)
+        self.__path_config_folder = pathlib.Path(path_millegrilles_folder, 'mgtransfertool')
+        self.__path_config_folder.mkdir(0o700, exist_ok=True)
+
+        self.__path_cert = pathlib.Path(self.__path_config_folder, 'usager.cert')
+        self.__path_cle = pathlib.Path(self.__path_config_folder, 'usager.cle')
+        self.__path_ca = pathlib.Path(self.__path_config_folder, 'usager.ca')
+        self.__path_config = pathlib.Path(self.__path_config_folder, 'config.json')
 
         self.__formatteur: Optional[FormatteurMessageMilleGrilles] = None
         self.__validateur: Optional[ValidateurMessage] = None
@@ -323,6 +330,7 @@ class Authentification:
             fichier.write(certificat)
         with open(self.__path_cle, 'wt') as fichier:
             fichier.write(cle_pem)
+        self.__path_cle.chmod(0o600)
         with open(self.__path_ca, 'wt') as fichier:
             fichier.write(ca)
 
