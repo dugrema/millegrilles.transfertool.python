@@ -1,5 +1,6 @@
 import datetime
 import logging
+import json
 
 import requests
 import tkinter as tk
@@ -15,6 +16,8 @@ from millegrilles_messages.chiffrage.Mgs4 import CipherMgs4, chiffrer_document, 
 from millegrilles_messages.messages.Hachage import Hacheur
 from millegrilles_messages.chiffrage.SignatureDomaines import SignatureDomaines
 from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat
+
+from tksample1.Navigation import sync_collection, Repertoire
 
 
 class UploadFichier:
@@ -37,6 +40,14 @@ class UploadRepertoire:
     def __init__(self, cuuid_parent: str, path_dir: pathlib.Path):
         self.__cuuid_parent = cuuid_parent
         self.__path_dir = path_dir
+
+    @property
+    def cuuid_parent(self):
+        return self.__cuuid_parent
+
+    @property
+    def path(self):
+        return self.__path_dir
 
 
 class Uploader:
@@ -99,8 +110,54 @@ class Uploader:
                     except Exception:
                         self.__logger.exception("Erreur upload")
 
-    def upload_repertoire(self, upload: UploadRepertoire):
-        raise NotImplementedError('todo')
+    def upload_repertoire(self, upload: UploadRepertoire, rep_parent: Optional[Repertoire] = None):
+        if rep_parent is None:
+            cuuid_parent = upload.cuuid_parent
+            rep_parent = sync_collection(self.__connexion, cuuid_parent)
+        else:
+            cuuid_parent = rep_parent.cuuid
+
+        # Verifier si le repertoire existe deja dans le parent
+        nom_repertoire = upload.path.name
+
+        try:
+            rep_existant = [f for f in rep_parent.fichiers if f['nom'] == nom_repertoire].pop()
+            cuuid_courant = rep_existant['tuuid']
+            rep_courant = sync_collection(self.__connexion, cuuid_courant)
+        except IndexError:
+            rep_existant = None
+            # Creer repertoire
+            cuuid_courant = self.creer_collection(nom_repertoire, cuuid_parent)
+            rep_courant = Repertoire(list(), cuuid_courant)
+
+        # Generer dict des fichiers/sous-repertoires
+        rep_map = dict()
+        for item in rep_courant.fichiers:
+            rep_map[item['nom']] = item
+
+        path_src = pathlib.Path(upload.path)
+        for t in path_src.iterdir():
+            nom_item = t.name
+            if t.is_dir():
+                rep_item = UploadRepertoire(cuuid_courant, t)
+                try:
+                    item = rep_map[nom_item]
+                    # Repertoire existe
+                    self.upload_repertoire(rep_item, rep_courant)
+                except KeyError:
+                    # Nouveau repertoire
+                    self.creer_collection(nom_item, cuuid_courant)
+                    self.upload_repertoire(rep_item, None)  # Parent none force resync
+            else:
+                # Fichier
+                try:
+                    item = rep_map[nom_item]
+                    # Fichier existe, on l'ignore (TODO : verifier hachage si changement)
+                except KeyError:
+                    fichier_item = UploadFichier(cuuid_courant, t)
+                    self.upload_fichier(fichier_item)
+
+        pass
 
     def upload_fichier(self, upload: UploadFichier):
         if self.__certificats_chiffrage is None:
@@ -115,13 +172,6 @@ class Uploader:
         stat_fichier = upload.path.stat()
         taille = stat_fichier.st_size
         date_fichier = int(stat_fichier.st_ctime)
-        # info_upload = {
-        #     'nom': upload.path.name,
-        #     'mimetype': upload.mimetype,
-        #     'taille': taille,
-        #     'dateFichier': date_fichier,
-        #     'cuuid': upload.cuuid,
-        # }
 
         # Preparer chiffrage
         cle_ca = self.__connexion.ca.get_public_x25519()
@@ -215,7 +265,7 @@ class Uploader:
         duree_upload = fin_upload - debut_upload
         self.__logger.debug("%s Fin upload %s (%d bytes), duree %s" % (fin_upload, upload.path.name, taille_chiffree, duree_upload))
 
-    def creer_collection(self, nom: str, cuuid_parent: Optional[str] = None):
+    def creer_collection(self, nom: str, cuuid_parent: Optional[str] = None) -> str:
         metadata = {'nom': nom}
         cipher, doc_chiffre = chiffrer_document_nouveau(self.__connexion.ca, metadata)
         info_dechiffrage = cipher.get_info_dechiffrage(self.__connexion.get_certificats_chiffrage())
@@ -251,7 +301,13 @@ class Uploader:
 
         transaction['attachements'] = {'cle': transaction_cle}
 
-        self.__connexion.call('creerCollection', transaction)
+        reponse = self.__connexion.call('creerCollection', transaction)
+
+        contenu = json.loads(reponse['contenu'])
+        cuuid = contenu['tuuid']
+
+        return cuuid
+
 
 def file_iterator(fp, cipher, hacheur, maxsize):
     CHUNK_SIZE = 64*1024
