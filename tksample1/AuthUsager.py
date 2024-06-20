@@ -55,6 +55,8 @@ class Authentification:
         self.__path_ca = pathlib.Path(self.__path_config_folder, 'usager.ca')
         self.__path_config = pathlib.Path(self.__path_config_folder, 'config.json')
 
+        self.__path_download = pathlib.Path(home, 'Downloads')
+
         self.__formatteur: Optional[FormatteurMessageMilleGrilles] = None
         self.__validateur: Optional[ValidateurMessage] = None
         self.__ca: Optional[EnveloppeCertificat] = None
@@ -83,6 +85,10 @@ class Authentification:
     @property
     def url_collections(self):
         return self.__url_collection
+
+    @property
+    def download_path(self):
+        return self.__path_download
 
     def emit(self, *args, **kwargs):
         with self.__lock_emit:
@@ -113,6 +119,11 @@ class Authentification:
 
         self.nom_usager = nom_usager
         self.url_fiche_serveur = parse.urlparse(url_fiche_serveur)
+
+        try:
+            self.__path_download = config['download_path']
+        except KeyError:
+            pass
 
         return True
 

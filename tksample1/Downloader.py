@@ -65,7 +65,7 @@ class Downloader:
 
         self.__navigation = None
 
-        self.__destination = pathlib.Path('/tmp')
+        # self.__destination = pathlib.Path('/tmp')
 
     def quit(self):
         self.__download_pret.set()
@@ -76,15 +76,21 @@ class Downloader:
     def set_url_download(self, url_download: parse.ParseResult):
         self.__url_download = url_download
 
-    def ajouter_download_fichier(self, download, destination = None) -> DownloadFichier:
-        destination = destination or self.__destination
+    def ajouter_download_fichier(self, download, destination=None) -> DownloadFichier:
+        destination = destination or self.__connexion.download_path
+        if destination.exists() is False:
+            destination.mkdir()
+
         download_item = DownloadFichier(download, destination)
         self.__download_queue.append(download_item)
         self.__download_pret.set()
         return download_item
 
-    def ajouter_download_repertoire(self, repertoire, destination = None):
-        destination = destination or self.__destination
+    def ajouter_download_repertoire(self, repertoire, destination=None):
+        destination = destination or self.__connexion.download_path
+        if destination.exists() is False:
+            destination.mkdir()
+
         download_item = DownloadRepertoire(repertoire, destination)
         self.__download_queue.append(download_item)
         self.__download_pret.set()
