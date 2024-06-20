@@ -12,11 +12,13 @@ from typing import Optional
 from threading import Event, Thread
 
 from millegrilles_messages.messages import Constantes
+from millegrilles_messages.chiffrage.SignatureDomaines import SignatureDomaines
 
 from tksample1.AuthUsager import Authentification
 
 
 from millegrilles_messages.chiffrage.DechiffrageUtils import dechiffrer_reponse, dechiffrer_document_secrete
+from millegrilles_messages.chiffrage.Mgs4 import chiffrer_document_nouveau
 
 
 class Repertoire:
@@ -137,6 +139,46 @@ class Navigation:
             raise Exception('Upload dans Favoris non supporte')
         self.uploader.ajouter_upload(cuuid, path_dir)
 
+    def creer_collection(self, nom: str):
+        cuuid_parent = self.__repertoire.cuuid
+        self.uploader.creer_collection(nom, cuuid_parent)
+        # metadata = {'nom': nom}
+        # cipher, doc_chiffre = chiffrer_document_nouveau(self.connexion.ca, metadata)
+        # info_dechiffrage = cipher.get_info_dechiffrage(self.connexion.get_certificats_chiffrage())
+        # cle_ca = info_dechiffrage['cle']
+        # cles_dechiffrage = info_dechiffrage['cles']
+        #
+        # # Signer cle
+        # signature_cle = SignatureDomaines.signer_domaines(cipher.cle_secrete, ['GrosFichiers'], cle_ca)
+        #
+        # # Ajouter information de cle a metadata de la collection
+        # doc_chiffre['cle_id'] = signature_cle.get_cle_ref()
+        # doc_chiffre['format'] = 'mgs4'
+        # doc_chiffre['verification'] = info_dechiffrage['hachage_bytes']
+        #
+        # transaction = {'metadata': doc_chiffre}
+        #
+        # if cuuid_parent:
+        #     transaction['cuuid'] = cuuid_parent
+        # else:
+        #     transaction['favoris'] = True
+        #
+        # transaction, message_id = self.connexion.formatteur.signer_message(
+        #     Constantes.KIND_COMMANDE, transaction,
+        #     domaine="GrosFichiers", action="nouvelleCollection", ajouter_chaine_certs=True)
+        #
+        # transaction_cle = {
+        #     'signature': signature_cle.to_dict(),
+        #     'cles': cles_dechiffrage,
+        # }
+        # transaction_cle, message_id = self.connexion.formatteur.signer_message(
+        #     Constantes.KIND_COMMANDE, transaction_cle,
+        #     domaine="MaitreDesCles", action="ajouterCleDomaines", ajouter_chaine_certs=True)
+        #
+        # transaction['attachements'] = {'cle': transaction_cle}
+        #
+        # self.connexion.call('creerCollection', transaction)
+
 
 class NavigationFrame(tk.Frame):
 
@@ -151,6 +193,7 @@ class NavigationFrame(tk.Frame):
         self.__breadcrumb_label = tk.Label(master=self, textvariable=self.breadcrumb, justify="left")
         self.__btn_up = tk.Button(master=self, text="Up", command=self.btn_up_handler)
 
+        self.__btn_creer_collection = tk.Button(master=self, text="+ Collection", command=self.btn_creer_collection)
         self.__btn_download = tk.Button(master=self, text="Download", command=self.btn_download_handler)
         self.__btn_upload = tk.Button(master=self, text="Upload", command=self.btn_upload_handler)
         self.__btn_upload_dir = tk.Button(master=self, text="Upload Dir", command=self.btn_upload_dir_handler)
@@ -169,6 +212,7 @@ class NavigationFrame(tk.Frame):
         self.__breadcrumb_label.pack()
         self.__btn_up.pack()
         self.__btn_refresh.pack()
+        self.__btn_creer_collection.pack()
         self.__btn_download.pack()
         self.__btn_upload.pack()
         self.__btn_upload_dir.pack()
@@ -196,6 +240,10 @@ class NavigationFrame(tk.Frame):
     def btn_refresh(self):
         cuuid = self.__repertoire.cuuid
         self.__navigation.changer_cuuid(cuuid)
+
+    def btn_creer_collection(self):
+        nom_collection = tkinter.simpledialog.askstring(title="Creer repertoire", prompt="Nom du repertoire")
+        self.__navigation.creer_collection(nom_collection)
 
     def set_breadcrumb(self, breadcrumb: pathlib.Path):
         self.breadcrumb.set(str(breadcrumb))
