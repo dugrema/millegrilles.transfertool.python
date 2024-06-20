@@ -184,7 +184,7 @@ class Authentification:
 
                         # Verifier que l'instance du certificat correspond au systeme (meme IDMG)
                         url_fiche = self.url_fiche_serveur.geturl()
-                        reponse = requests.get(url_fiche)
+                        reponse = requests.get(url_fiche, verify=False)
                         reponse_json = reponse.json()
                         contenu = json.loads(reponse_json['contenu'])
                         idmg = cle_certificat.enveloppe.idmg
@@ -258,7 +258,7 @@ class Authentification:
 
     def parse_fiche(self) -> Union[list, parse.ParseResult]:
         url_fiche = self.url_fiche_serveur.geturl()
-        reponse = requests.get(url_fiche)
+        reponse = requests.get(url_fiche, verify=False)
         reponse_json = reponse.json()
         contenu = json.loads(reponse_json['contenu'])
 
@@ -291,7 +291,9 @@ class Authentification:
     def socketio_requete_certificat(self, url: parse.ParseResult):
         connexion_socketio = f'https://{url.hostname}'
 
-        sio = socketio.Client()
+        http_session = requests.Session()
+        sio = socketio.Client(http_session=http_session)
+        http_session.verify = False
         sio.connect(connexion_socketio, socketio_path='/millegrilles/socket.io')
         try:
             # Emettre CSR et attendre activation
@@ -322,6 +324,7 @@ class Authentification:
 
         except Exception as e:
             sio.disconnect()
+            http_session.close()
             self.auth_frame.set_etat(False)
             raise e
 

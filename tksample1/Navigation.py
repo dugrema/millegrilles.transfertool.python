@@ -226,12 +226,12 @@ class NavigationFrame(tk.Frame):
                 tn = '2'
             else:
                 tn = '1'
-            return tn + item['nom']
+            return tn + (item.get('nom') or item['tuuid'])
 
         fichiers_tries = sorted(self.__repertoire.fichiers, key=sort_nom)
 
         for fichier in fichiers_tries:
-            nom_fichier = fichier['nom']
+            nom_fichier = fichier.get('nom') or fichier['tuuid']
             taille_fichier = ''
             type_node = fichier['type_node']
             tuuid = fichier['tuuid']
@@ -296,10 +296,13 @@ def sync_collection(connexion, cuuid: Optional[str] = None):
     cle_ids = set()
     for fichier in fichiers:
         try:
-            cle_id = fichier['metadata']['cle_id']
+            metadata_chiffre = fichier['metadata']
+            cle_id = metadata_chiffre.get('cle_id') or metadata_chiffre.get('ref_hachage_bytes') or metadata_chiffre[
+                'hachage_bytes']
             cle_ids.add(cle_id)
         except KeyError:
-            pass
+            cle_id = fichier['version_courante']['fuuid']
+            cle_ids.add(cle_id)
 
     cle_ids = list(cle_ids)
 
@@ -319,12 +322,17 @@ def sync_collection(connexion, cuuid: Optional[str] = None):
     # Dechiffrer metadata des fichiers et repertoires
     for fichier in fichiers:
         metadata_chiffre = fichier['metadata']
-        cle_id = metadata_chiffre.get('cle_id') or metadata_chiffre.get('ref_hachage_bytes') or metadata_chiffre['hachage_bytes']
         try:
-            cle_secrete = cles[cle_id]['cle_secrete']
+            cle_id = metadata_chiffre.get('cle_id') or metadata_chiffre.get('ref_hachage_bytes') or metadata_chiffre['hachage_bytes']
+        except KeyError:
+            cle_id = fichier['version_courante']['fuuid']
+        try:
+            info_cle = cles[cle_id]
+            cle_secrete = info_cle['cle_secrete']
         except KeyError:
             LOGGER.warning('Cle manquante pour %s, SKIP', fichier)
         else:
+            fichier['info_cle'] = info_cle
             fichier['cle_secrete'] = cle_secrete
             info_dechiffree = dechiffrer_document_secrete(cle_secrete, metadata_chiffre)
             fichier.update(info_dechiffree)

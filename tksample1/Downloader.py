@@ -20,8 +20,8 @@ class DownloadFichier:
         self.nom = download_info['nom']
         self.taille_chiffree = version_courante['taille']
 
-        self.nonce = version_courante['nonce']
-        self.format = version_courante['format']
+        self.nonce = version_courante.get('nonce') or download_info['info_cle']['nonce']
+        self.format = version_courante.get('format') or download_info['info_cle']['format']
 
         self.path_destination = destination
 
