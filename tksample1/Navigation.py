@@ -261,6 +261,7 @@ def sync_collection(connexion, cuuid: Optional[str] = None):
     limit = 100
     skip = 0
 
+    tuuids = list()
     while True:
         requete = {
             'limit': limit,
@@ -275,9 +276,10 @@ def sync_collection(connexion, cuuid: Optional[str] = None):
         contenu_sync = json.loads(reponse_sync['contenu'])
 
         fichiers_recus = [f for f in contenu_sync['liste'] if f['supprime'] is False]
-        tuuids = [f['tuuid'] for f in fichiers_recus]
+        tuuids_recus = [f['tuuid'] for f in fichiers_recus]
 
-        skip += len(tuuids)
+        skip += len(tuuids_recus)
+        tuuids.extend(tuuids_recus)
 
         if contenu_sync['complete'] is True:
             break
@@ -287,6 +289,19 @@ def sync_collection(connexion, cuuid: Optional[str] = None):
         return Repertoire(list(), cuuid)
 
     # Charger les documents
+    fichiers_complet = list()
+    while len(tuuids) > 0:
+        batch_tuuids = tuuids[0:50]
+        tuuids = tuuids[50:]
+        fichiers = recevoir_metadata_fichiers(connexion, batch_tuuids)
+        fichiers_complet.extend(fichiers)
+
+    rep = Repertoire(fichiers_complet, cuuid)
+
+    return rep
+
+
+def recevoir_metadata_fichiers(connexion, tuuids):
     requete_documents = {'tuuids_documents': tuuids, 'partage': False, 'contact_id': None}
     requete_documents, message_id = connexion.formatteur.signer_message(
         Constantes.KIND_REQUETE, requete_documents, 'GrosFichiers', True, 'documentsParTuuid')
@@ -303,27 +318,23 @@ def sync_collection(connexion, cuuid: Optional[str] = None):
         except KeyError:
             cle_id = fichier['version_courante']['fuuid']
             cle_ids.add(cle_id)
-
     cle_ids = list(cle_ids)
-
     # Charger les cles de dechiffrage
     requete_cles = {'fuuids': cle_ids, 'partage': False, 'version': 2}
     requete_cles, message_id = connexion.formatteur.signer_message(
         Constantes.KIND_REQUETE, requete_cles, 'GrosFichiers', True, 'getClesFichiers')
-
     reponse_cles = connexion.call('getPermissionCles', requete_cles, timeout=30)
     cles_dechiffrees = dechiffrer_reponse(connexion.clecert, reponse_cles)
-
     cles = dict()
     for cle in cles_dechiffrees['cles']:
-        cle['cle_secrete'] = multibase.decode('m'+cle['cle_secrete_base64'])
+        cle['cle_secrete'] = multibase.decode('m' + cle['cle_secrete_base64'])
         cles[cle['cle_id']] = cle
-
     # Dechiffrer metadata des fichiers et repertoires
     for fichier in fichiers:
         metadata_chiffre = fichier['metadata']
         try:
-            cle_id = metadata_chiffre.get('cle_id') or metadata_chiffre.get('ref_hachage_bytes') or metadata_chiffre['hachage_bytes']
+            cle_id = metadata_chiffre.get('cle_id') or metadata_chiffre.get('ref_hachage_bytes') or metadata_chiffre[
+                'hachage_bytes']
         except KeyError:
             cle_id = fichier['version_courante']['fuuid']
         try:
@@ -337,6 +348,4 @@ def sync_collection(connexion, cuuid: Optional[str] = None):
             info_dechiffree = dechiffrer_document_secrete(cle_secrete, metadata_chiffre)
             fichier.update(info_dechiffree)
 
-    rep = Repertoire(fichiers, cuuid)
-
-    return rep
+    return fichiers
