@@ -168,6 +168,25 @@ class NavigationFrame(tk.Frame):
         self.dirlist = ttk.Treeview(master=self, columns=('taille', 'type', 'date'))
         self.dirlist['columns'] = ('taille', 'type', 'date')
 
+        self.dirlist.heading("taille", text="Taille")
+        self.dirlist.heading("type", text="Type")
+        self.dirlist.heading("date", text="Date")
+
+        self.dirlist.column("taille", width=90, anchor='se')
+        self.dirlist.column("type", width=100)
+        self.dirlist.column("date", width=145)
+
+        # Calling pack method w.r.to vertical
+        # scrollbar
+        verscrlbar = ttk.Scrollbar(self,
+                                   orient="vertical",
+                                   command=self.dirlist.yview)
+        verscrlbar.pack(side='right', fill='x')
+
+        # Configuring treeview
+        self.dirlist.configure(xscrollcommand=verscrlbar.set)
+
+
         self.widget_bind()
 
     def widget_bind(self):
@@ -182,7 +201,8 @@ class NavigationFrame(tk.Frame):
         self.__btn_download.pack()
         self.__btn_upload.pack()
         self.__btn_upload_dir.pack()
-        self.dirlist.pack()
+        self.dirlist.pack(side="right")
+
         super().pack()
 
     def btn_up_handler(self):
@@ -239,8 +259,10 @@ class NavigationFrame(tk.Frame):
                 type_fichier = 'Repertoire'
                 date_fichier = datetime.datetime.fromtimestamp(fichier['derniere_modification'], tz=pytz.UTC)
             else:
+                version_courante = fichier['version_courante']
+                taille_fichier = version_courante['taille']
                 type_fichier = 'Fichier'
-                date_fichier = None
+                date_fichier = datetime.datetime.fromtimestamp(fichier['dateFichier'], tz=pytz.UTC)
             self.dirlist.insert('', 'end', iid=tuuid, text=nom_fichier, values=(taille_fichier, type_fichier, date_fichier))
 
     def dirlist_rightclick_fichier(self, event):
