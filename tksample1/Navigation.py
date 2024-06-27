@@ -154,18 +154,30 @@ class NavigationFrame(tk.Frame):
         self.__navigation = navigation
         self.__repertoire: Optional[Repertoire] = None
 
+        self.__frame_actions = tk.Frame(master=self)
+        self.__btn_creer_collection = tk.Button(master=self.__frame_actions, text="+ Collection", command=self.btn_creer_collection)
+        self.__btn_creer_collection.grid(row=0, column=0)
+        self.__btn_download = tk.Button(master=self.__frame_actions, text="Download", command=self.btn_download_handler)
+        self.__btn_download.grid(row=0, column=1)
+        self.__btn_upload = tk.Button(master=self.__frame_actions, text="Upload", command=self.btn_upload_handler)
+        self.__btn_upload.grid(row=0, column=2)
+        self.__btn_upload_dir = tk.Button(master=self.__frame_actions, text="Upload Dir", command=self.btn_upload_dir_handler)
+        self.__btn_upload_dir.grid(row=0, column=3)
+        self.__btn_refresh = tk.Button(master=self.__frame_actions, text="Refresh", command=self.btn_refresh)
+        self.__btn_refresh.grid(row=0, column=4)
+
+        self.__frame_breadcrumb = tk.Frame(master=self)
         self.__breadcrumb_path = pathlib.Path('Favoris/')
-        self.breadcrumb = tk.StringVar(master=self, value=str(self.__breadcrumb_path))
-        self.__breadcrumb_label = tk.Label(master=self, textvariable=self.breadcrumb, justify="left")
-        self.__btn_up = tk.Button(master=self, text="Up", command=self.btn_up_handler)
+        self.breadcrumb = tk.StringVar(master=self.__frame_breadcrumb, value=str(self.__breadcrumb_path))
+        self.__breadcrumb_label = tk.Label(master=self.__frame_breadcrumb, textvariable=self.breadcrumb, justify="left")
+        self.__btn_up = tk.Button(master=self.__frame_breadcrumb, text="Up", command=self.btn_up_handler)
+        # self.__btn_up.grid(row=0, column=0)
+        # self.__breadcrumb_label.grid(row=0, column=1)
+        self.__btn_up.pack(side=tk.LEFT)
+        self.__breadcrumb_label.pack(side=tk.LEFT)
 
-        self.__btn_creer_collection = tk.Button(master=self, text="+ Collection", command=self.btn_creer_collection)
-        self.__btn_download = tk.Button(master=self, text="Download", command=self.btn_download_handler)
-        self.__btn_upload = tk.Button(master=self, text="Upload", command=self.btn_upload_handler)
-        self.__btn_upload_dir = tk.Button(master=self, text="Upload Dir", command=self.btn_upload_dir_handler)
-        self.__btn_refresh = tk.Button(master=self, text="Refresh", command=self.btn_refresh)
-
-        self.dirlist = ttk.Treeview(master=self, columns=('taille', 'type', 'date'))
+        self.__dir_frame = ttk.Frame(master=self)
+        self.dirlist = ttk.Treeview(master=self.__dir_frame, columns=('taille', 'type', 'date'), height=25)
         self.dirlist['columns'] = ('taille', 'type', 'date')
 
         self.dirlist.heading("taille", text="Taille")
@@ -176,16 +188,16 @@ class NavigationFrame(tk.Frame):
         self.dirlist.column("type", width=100)
         self.dirlist.column("date", width=145)
 
+        self.dirlist.pack(side=tk.LEFT, fill=tk.BOTH)
+
         # Calling pack method w.r.to vertical
         # scrollbar
-        verscrlbar = ttk.Scrollbar(self,
-                                   orient="vertical",
-                                   command=self.dirlist.yview)
-        verscrlbar.pack(side='right', fill='x')
-
+        verscrlbar = ttk.Scrollbar(self.__dir_frame,
+                                  orient="vertical",
+                                  command=self.dirlist.yview)
         # Configuring treeview
+        verscrlbar.pack(side=tk.LEFT, fill='y')
         self.dirlist.configure(xscrollcommand=verscrlbar.set)
-
 
         self.widget_bind()
 
@@ -193,17 +205,32 @@ class NavigationFrame(tk.Frame):
         self.dirlist.bind('<Button-3>', self.dirlist_rightclick_fichier)
         self.dirlist.bind('<Double-Button-1>', self.dirlist_doubleclick_fichier)
 
-    def pack(self):
-        self.__breadcrumb_label.pack()
-        self.__btn_up.pack()
-        self.__btn_refresh.pack()
-        self.__btn_creer_collection.pack()
-        self.__btn_download.pack()
-        self.__btn_upload.pack()
-        self.__btn_upload_dir.pack()
-        self.dirlist.pack(side="right")
+    # def pack(self):
+    #     # self.__btn_refresh.pack()
+    #     # self.__btn_creer_collection.pack()
+    #     # self.__btn_download.pack()
+    #     # self.__btn_upload.pack()
+    #     # self.__btn_upload_dir.pack()
+    #     self.__frame_actions.grid(row=0, column=0)
+    #
+    #     self.__frame_actions.grid(row=1, column=0)
+    #     self.__frame_breadcrumb.grid(row=2, column=0)
+    #     # self.__breadcrumb_label.pack()
+    #     # self.__btn_up.grid(row=0, column=0)
+    #     # self.__breadcrumb_label.pack()
+    #
+    #     self.__dir_frame.grid(row=3, column=0)
+    #     # self.dirlist.pack(side="right")
+    #
+    #     super().grid(row=0, column=1)
 
-        super().pack()
+    def grid(self, *args, **kwargs):
+        self.__frame_actions.grid(row=0, column=0)
+        self.__frame_actions.grid(row=1, column=0)
+        self.__frame_breadcrumb.grid(row=2, column=0)
+        self.__dir_frame.grid(row=3, column=0)
+
+        super().grid(*args, **kwargs)
 
     def btn_up_handler(self):
         self.__navigation.naviguer_up()

@@ -509,6 +509,16 @@ class AuthFrame(tk.Frame):
         self.__etat_label.pack()
         super().pack()
 
+    def grid(self, *args, **kwargs):
+        self.label_nomusager.grid(row=0, column=0)
+        self.entry_nomusager.grid(row=0, column=1, columnspan=2)
+        self.label_url_serveur.grid(row=1, column=0)
+        self.entry_serveur.grid(row=1, column=1, columnspan=2)
+        self.button_connecter.grid(row=2, column=0)
+        self.button_deconnecter.grid(row=2, column=1)
+        self.__etat_label.grid(row=2, column=2)
+        super().grid(*args, **kwargs)
+
     def set_etat(self, connecte=False, code_activation=None):
         if code_activation:
             self.etat.set('Code activation : %s' % code_activation)

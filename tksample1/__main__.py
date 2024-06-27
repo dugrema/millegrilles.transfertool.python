@@ -57,9 +57,11 @@ class Window(tk.Tk):
         self.auth = auth
 
         self.__frame_auth = AuthFrame(auth)
-        self.__frame_auth.pack()
+        # self.__frame_auth.pack()
+        self.__frame_auth.grid(row=0, column=0)
         self.__frame_navigation = NavigationFrame(navigation)
-        self.__frame_navigation.pack()
+        # self.__frame_navigation.pack()
+        self.__frame_navigation.grid(row=1, column=0)
 
         # Wiring du frame dans Authentification - permet changer affichage
         self.auth.auth_frame = self.__frame_auth
