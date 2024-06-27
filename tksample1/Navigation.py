@@ -145,6 +145,14 @@ class Navigation:
         cuuid_parent = self.__repertoire.cuuid
         self.uploader.creer_collection(nom, cuuid_parent)
 
+    def set_upload_status(self, status: str):
+        if self.nav_frame is None:
+            return  # Init en cours
+        self.nav_frame.set_upload_status(status)
+
+    def set_download_status(self, status: str):
+        self.nav_frame.set_download_status(status)
+
 
 class NavigationFrame(tk.Frame):
 
@@ -175,6 +183,14 @@ class NavigationFrame(tk.Frame):
         # self.__breadcrumb_label.grid(row=0, column=1)
         self.__btn_up.pack(side=tk.LEFT)
         self.__breadcrumb_label.pack(side=tk.LEFT)
+
+        self.__frame_transfer_status = tk.Frame(master=self)
+        self.upload_status_var = tk.StringVar(master=self.__frame_transfer_status, value='Upload inactif')
+        self.download_status_var = tk.StringVar(master=self.__frame_transfer_status, value='Download inactif')
+        self.__upload_status_label = tk.Label(master=self.__frame_transfer_status, textvariable=self.upload_status_var, justify="left")
+        self.__download_status_label = tk.Label(master=self.__frame_transfer_status, textvariable=self.download_status_var, justify="left")
+        self.__upload_status_label.grid(row=0, column=0)
+        self.__download_status_label.grid(row=0, column=1)
 
         self.__dir_frame = ttk.Frame(master=self)
         self.dirlist = ttk.Treeview(master=self.__dir_frame, columns=('taille', 'type', 'date'), height=25)
@@ -228,7 +244,8 @@ class NavigationFrame(tk.Frame):
         self.__frame_actions.grid(row=0, column=0)
         self.__frame_actions.grid(row=1, column=0)
         self.__frame_breadcrumb.grid(row=2, column=0)
-        self.__dir_frame.grid(row=3, column=0)
+        self.__frame_transfer_status.grid(row=3, column=0)
+        self.__dir_frame.grid(row=4, column=0)
 
         super().grid(*args, **kwargs)
 
@@ -303,6 +320,12 @@ class NavigationFrame(tk.Frame):
             self.__navigation.changer_cuuid(tuuid)
         else:
             self.__navigation.ajouter_download(tuuid)
+
+    def set_download_status(self, status: str):
+        self.download_status_var.set(status)
+
+    def set_upload_status(self, status: str):
+        self.upload_status_var.set(status)
 
 
 def sync_collection(connexion, cuuid: Optional[str] = None):

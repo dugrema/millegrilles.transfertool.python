@@ -1,6 +1,7 @@
 import datetime
 import logging
 import json
+import time
 
 import requests
 import tkinter as tk
@@ -8,7 +9,7 @@ import pathlib
 import mimetypes
 
 from threading import Event, Thread
-from typing import Optional
+from typing import Optional, Union
 from urllib import parse
 
 from millegrilles_messages.messages import Constantes
@@ -20,26 +21,29 @@ from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertific
 from tksample1.Navigation import sync_collection, Repertoire
 
 
-class UploadFichier:
-
-    def __init__(self, cuuid: str, path_fichier: pathlib.Path):
-        self.cuuid = cuuid
-        self.__path_fichier = path_fichier
-
-    @property
-    def path(self):
-        return self.__path_fichier
-
-    @property
-    def mimetype(self):
-        return mimetypes.guess_type(self.__path_fichier)[0]
-
-
 class UploadRepertoire:
 
-    def __init__(self, cuuid_parent: str, path_dir: pathlib.Path):
+    def __init__(self, cuuid_parent: str, path_dir: pathlib.Path, parent: Optional = None):
         self.__cuuid_parent = cuuid_parent
         self.__path_dir = path_dir
+        self.__parent = parent
+        self.taille = None
+        self.nombre_sous_fichiers = None
+        self.__taille_uploade = 0
+        self.fichiers_uploades = 0
+
+    def add_chunk_uploade(self, taille: int):
+        if self.__parent is not None:
+            self.__parent.add_chunk_uploade(taille)
+        else:
+            self.__taille_uploade += taille
+
+    def add_fichiers_traite(self, compte: int):
+        self.fichiers_uploades += compte
+
+    @property
+    def taille_uploade(self):
+        return self.__taille_uploade
 
     @property
     def cuuid_parent(self):
@@ -48,6 +52,54 @@ class UploadRepertoire:
     @property
     def path(self):
         return self.__path_dir
+
+    def preparer_taille(self):
+        if self.taille is None:
+            taille_rep, nombre_fichiers_reps = self.__preparer_recursif(self.__path_dir)
+            self.taille = taille_rep
+            self.nombre_sous_fichiers = nombre_fichiers_reps
+
+    def __preparer_recursif(self, path_rep: pathlib.Path) -> (int, int):
+        compte_fichiers = 0
+        taille_fichiers = 0
+        for f in path_rep.iterdir():
+            if f.is_file():
+                taille_fichiers += f.stat().st_size
+                compte_fichiers += 1
+            else:
+                taille_rep, nombre_fichiers_reps = self.__preparer_recursif(f)
+                compte_fichiers += nombre_fichiers_reps
+                taille_fichiers += taille_rep
+
+        return taille_fichiers, compte_fichiers
+
+
+class UploadFichier:
+
+    def __init__(self, cuuid: str, path_fichier: pathlib.Path, parent: Optional[UploadRepertoire] = None):
+        self.cuuid = cuuid
+        self.__path_fichier = path_fichier
+        self.__parent = parent
+        self.taille = path_fichier.stat().st_size
+        self.__taille_uploade = 0
+
+    def add_chunk_uploade(self, taille: int):
+        if self.__parent:
+            self.__parent.add_chunk_uploade(taille)
+        else:
+            self.__taille_uploade += taille
+
+    @property
+    def taille_uploade(self):
+        return self.__taille_uploade
+
+    @property
+    def path(self):
+        return self.__path_fichier
+
+    @property
+    def mimetype(self):
+        return mimetypes.guess_type(self.__path_fichier)[0]
 
 
 class Uploader:
@@ -64,9 +116,13 @@ class Uploader:
         self.__certificats_chiffrage: Optional[list[EnveloppeCertificat]] = None
 
         self.__navigation = None
+        self.__upload_en_cours: Optional[Union[UploadFichier, UploadRepertoire]] = None
+        self.__event_upload_in_progress = Event()
 
         self.__thread = Thread(name="uploader", target=self.upload_thread)
         self.__thread.start()
+        self.__thread_label = Thread(name="uploader_label", target=self.__upload_label_thread, daemon=False)
+        self.__thread_label.start()
 
     def set_navigation(self, navigation):
         self.__navigation = navigation
@@ -89,26 +145,66 @@ class Uploader:
 
     def upload_thread(self):
         while self.__stop_event.is_set() is False:
+            self.update_upload_status()
+            self.__event_upload_in_progress.clear()
             self.__upload_pret.wait()
             self.__upload_pret.clear()
 
             while True:
+                self.update_upload_status()
                 try:
-                    upload = self.__upload_queue.pop(0)
+                    self.__upload_en_cours = self.__upload_queue.pop(0)
+                    self.__event_upload_in_progress.set()
                 except IndexError:
                     break
                 else:
                     if self.__stop_event.is_set():
                         return  # Stopping
                     try:
-                        if isinstance(upload, UploadFichier):
-                            self.upload_fichier(upload)
-                        elif isinstance(upload, UploadRepertoire):
-                            self.upload_repertoire(upload)
+                        self.update_upload_status()
+                        if isinstance(self.__upload_en_cours, UploadFichier):
+                            self.upload_fichier(self.__upload_en_cours)
+                        elif isinstance(self.__upload_en_cours, UploadRepertoire):
+                            self.upload_repertoire(self.__upload_en_cours)
                         else:
-                            self.__logger.error("Type upload non supporte : %s" % upload)
+                            self.__logger.error("Type upload non supporte : %s" % self.__upload_en_cours)
                     except Exception:
                         self.__logger.exception("Erreur upload")
+                    finally:
+                        self.__upload_en_cours = None
+
+    def __upload_label_thread(self):
+        while True:
+            self.__event_upload_in_progress.wait()
+
+            if isinstance(self.__upload_en_cours, UploadRepertoire):
+                if self.__upload_en_cours.taille is None:
+                    self.__upload_en_cours.preparer_taille()
+
+            self.update_upload_status()
+            time.sleep(1)
+
+    def update_upload_status(self):
+        if self.__navigation is None:
+            return  # Pas initialise
+
+        if self.__upload_en_cours is not None:
+            try:
+                progres = int(self.__upload_en_cours.taille_uploade * 100.0 / self.__upload_en_cours.taille)
+                fichiers_restants = len(self.__upload_queue)
+                if isinstance(self.__upload_en_cours, UploadRepertoire):
+                    fichiers_restants += self.__upload_en_cours.nombre_sous_fichiers - self.__upload_en_cours.fichiers_uploades
+                if fichiers_restants > 0:
+                    self.__navigation.set_upload_status('Uploading %d%% (%d fichiers restants)' % (progres, fichiers_restants))
+                else:
+                    self.__navigation.set_upload_status('Uploading %d%%' % progres)
+            except Exception as e:
+                self.__logger.debug("Erreur update upload : %s" % e)
+                self.__navigation.set_upload_status('Uploading ...')
+        elif len(self.__upload_queue) > 0:
+            self.__navigation.set_upload_status('Uploading ...')
+        else:
+            self.__navigation.set_upload_status('Upload inactif')
 
     def upload_repertoire(self, upload: UploadRepertoire, rep_parent: Optional[Repertoire] = None):
         if rep_parent is None:
@@ -139,7 +235,7 @@ class Uploader:
         for t in path_src.iterdir():
             nom_item = t.name
             if t.is_dir():
-                rep_item = UploadRepertoire(cuuid_courant, t)
+                rep_item = UploadRepertoire(cuuid_courant, t, upload)
                 try:
                     item = rep_map[nom_item]
                     # Repertoire existe
@@ -154,8 +250,9 @@ class Uploader:
                     item = rep_map[nom_item]
                     # Fichier existe, on l'ignore (TODO : verifier hachage si changement)
                 except KeyError:
-                    fichier_item = UploadFichier(cuuid_courant, t)
+                    fichier_item = UploadFichier(cuuid_courant, t, upload)
                     self.upload_fichier(fichier_item)
+                    upload.add_fichiers_traite(1)
 
         pass
 
@@ -197,7 +294,7 @@ class Uploader:
         with open(upload.path, 'rb') as fichier:
             while cipher.hachage is None:
                 position = fichier.tell()
-                stream = file_iterator(fichier, cipher, hacheur, SPLIT_SIZE)
+                stream = file_iterator(fichier, cipher, hacheur, SPLIT_SIZE, upload)
                 url_put = f'https://{url_collections.hostname}:444{url_collections.path}/fichiers/upload/{batch_id}/{position}'
                 response = self.__https_session.put(url_put, headers=headers, data=stream)
                 response.raise_for_status()
@@ -309,7 +406,7 @@ class Uploader:
         return cuuid
 
 
-def file_iterator(fp, cipher, hacheur, maxsize):
+def file_iterator(fp, cipher, hacheur, maxsize, upload: UploadFichier):
     CHUNK_SIZE = 64*1024
     current_output_size = 0
     maxsize = maxsize - CHUNK_SIZE
@@ -319,6 +416,8 @@ def file_iterator(fp, cipher, hacheur, maxsize):
             chunk = cipher.finalize()
             yield chunk
             return
+        chunk_size = len(chunk)
+        upload.add_chunk_uploade(chunk_size)
         hacheur.update(chunk)
         chunk = cipher.update(chunk)
         if len(chunk) > 0:
