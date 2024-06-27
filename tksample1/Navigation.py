@@ -151,6 +151,8 @@ class Navigation:
         self.nav_frame.set_upload_status(status)
 
     def set_download_status(self, status: str):
+        if self.nav_frame is None:
+            return  # Init en cours
         self.nav_frame.set_download_status(status)
 
 
@@ -189,8 +191,8 @@ class NavigationFrame(tk.Frame):
         self.download_status_var = tk.StringVar(master=self.__frame_transfer_status, value='Download inactif')
         self.__upload_status_label = tk.Label(master=self.__frame_transfer_status, textvariable=self.upload_status_var, justify="left")
         self.__download_status_label = tk.Label(master=self.__frame_transfer_status, textvariable=self.download_status_var, justify="left")
-        self.__upload_status_label.grid(row=0, column=0)
-        self.__download_status_label.grid(row=0, column=1)
+        self.__upload_status_label.pack(fill=tk.X)
+        self.__download_status_label.pack(fill=tk.X)
 
         self.__dir_frame = ttk.Frame(master=self)
         self.dirlist = ttk.Treeview(master=self.__dir_frame, columns=('taille', 'type', 'date'), height=25)

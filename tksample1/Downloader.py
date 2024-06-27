@@ -1,9 +1,9 @@
 import logging
-import os
 import pathlib
+import time
 from threading import Event, Thread
 from urllib import parse
-from typing import Optional
+from typing import Optional, Union
 import requests
 
 from millegrilles_messages.chiffrage.Mgs4 import DecipherMgs4
@@ -58,12 +58,18 @@ class Downloader:
         self.__download_pret = Event()
         self.__url_download: Optional[parse.ParseResult] = None
 
+        self.__download_en_cours: Optional[Union[DownloadFichier, DownloadRepertoire]] = None
+        self.__event_download_in_progress = Event()
+
         self.__thread = Thread(name="downloader", target=self.download_thread)
         self.__thread.start()
 
         self.__https_session: Optional[requests.Session] = None
 
         self.__navigation = None
+
+        self.__thread_download_status = Thread(name="downloader_status", target=self.__download_label_thread, daemon=False)
+        self.__thread_download_status.start()
 
         # self.__destination = pathlib.Path('/tmp')
 
@@ -98,28 +104,67 @@ class Downloader:
 
     def download_thread(self):
         while self.__stop_event.is_set() is False:
+            self.update_download_status()
+            self.__event_download_in_progress.clear()
             self.__download_pret.wait()
             self.__download_pret.clear()
 
             while True:
                 try:
-                    download = self.__download_queue.pop(0)
+                    self.__download_en_cours = self.__download_queue.pop(0)
+                    self.__event_download_in_progress.set()
                 except IndexError:
                     break
                 else:
                     if self.__stop_event.is_set():
                         return  # Stopping
                     try:
-                        if isinstance(download, DownloadFichier):
-                            self.download_fichier(download)
-                            self.__logger.debug("Fin download fichier %s" % download.nom)
-                        elif isinstance(download, DownloadRepertoire):
-                            self.download_repertoire(download)
-                            self.__logger.debug("Fin download repertoire %s" % download.nom)
+                        if isinstance(self.__download_en_cours, DownloadFichier):
+                            self.download_fichier(self.__download_en_cours)
+                            self.__logger.debug("Fin download fichier %s" % self.__download_en_cours.nom)
+                        elif isinstance(self.__download_en_cours, DownloadRepertoire):
+                            self.download_repertoire(self.__download_en_cours)
+                            self.__logger.debug("Fin download repertoire %s" % self.__download_en_cours.nom)
                         else:
-                            self.__logger.error("Type download non supporte : %s" % download)
+                            self.__logger.error("Type download non supporte : %s" % self.__download_en_cours)
                     except Exception:
-                        self.__logger.exception("Erreur download")
+                        self.__logger.exception("Erreur download fichier %s" % self.__download_en_cours.nom)
+                    finally:
+                        self.__download_en_cours = None
+
+    def __download_label_thread(self):
+        while True:
+            self.__event_download_in_progress.wait()
+
+            # if isinstance(self.__download_en_cours, DownloadRepertoire):
+            #     if self.__download_en_cours.taille is None:
+            #         self.__download_en_cours.preparer_taille()
+
+            self.update_download_status()
+            time.sleep(1)
+
+    def update_download_status(self):
+        if self.__navigation is None:
+            return  # Pas initialise
+
+        if self.__download_en_cours is not None:
+            # try:
+            #     progres = int(self.__download_en_cours.taille_downloade * 100.0 / self.__download_en_cours.taille)
+            #     fichiers_restants = len(self.__download_queue)
+            #     if isinstance(self.__download_en_cours, DownloadRepertoire):
+            #         fichiers_restants += self.__download_en_cours.nombre_sous_fichiers - self.__download_en_cours.fichiers_uploades
+            #     if fichiers_restants > 0:
+            #         self.__navigation.set_upload_status(
+            #             'Download %d%% (%d fichiers restants)' % (progres, fichiers_restants))
+            #     else:
+            #         self.__navigation.set_upload_status('Uploading %d%%' % progres)
+            # except Exception as e:
+            #     self.__logger.debug("Erreur update upload : %s" % e)
+            self.__navigation.set_download_status('Downloading ...')
+        elif len(self.__download_queue) > 0:
+            self.__navigation.set_download_status('Downloading ...')
+        else:
+            self.__navigation.set_download_status('Download inactif')
 
     def download_repertoire(self, item: DownloadRepertoire):
         tuuid = item.cuuid
@@ -166,12 +211,14 @@ class Downloader:
 
         path_reception_work = pathlib.Path(item.path_destination, item.nom + '.work')
         self.__logger.debug("Debut download fichier %s (taille : %d)" % (path_reception_work, item.taille_chiffree))
+        chunks_done = 0
         with open(path_reception_work, 'xb') as output:
             response = self.__https_session.get(url_fichier)
             response.raise_for_status()
 
             for chunk in response.iter_content(chunk_size=64*1024):
                 output.write(chunk)
+                chunks_done += 1
                 item.taille_recue += len(chunk)
 
         self.__logger.debug("Download fichier %s complete, dechiffrage en cours" % path_reception_work)
