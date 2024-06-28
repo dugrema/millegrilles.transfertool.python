@@ -99,7 +99,10 @@ class UploadFichier:
 
     @property
     def mimetype(self):
-        return mimetypes.guess_type(self.__path_fichier)[0]
+        guess = mimetypes.guess_type(self.__path_fichier)[0]
+        if guess is None:
+            return 'application/octet-stream'
+        return guess
 
 
 class Uploader:
