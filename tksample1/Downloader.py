@@ -63,7 +63,7 @@ class Downloader:
         self.__navigation = None
         self.__https_session: Optional[requests.Session] = None
 
-        self.__thread = Thread(name="downloader", target=self.download_thread)
+        self.__thread = Thread(name="downloader", target=self.download_thread, daemon=False)
         self.__thread.start()
         self.__thread_download_status = Thread(name="downloader_status", target=self.__download_label_thread, daemon=False)
         self.__thread_download_status.start()
@@ -130,8 +130,8 @@ class Downloader:
                         self.__download_en_cours = None
 
     def __download_label_thread(self):
-        while True:
-            self.__event_download_in_progress.wait()
+        while self.__stop_event.is_set() is False:
+            self.__event_download_in_progress.wait(timeout=5)
 
             # if isinstance(self.__download_en_cours, DownloadRepertoire):
             #     if self.__download_en_cours.taille is None:

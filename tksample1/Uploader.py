@@ -119,7 +119,7 @@ class Uploader:
         self.__upload_en_cours: Optional[Union[UploadFichier, UploadRepertoire]] = None
         self.__event_upload_in_progress = Event()
 
-        self.__thread = Thread(name="uploader", target=self.upload_thread)
+        self.__thread = Thread(name="uploader", target=self.upload_thread, daemon=False)
         self.__thread.start()
         self.__thread_label = Thread(name="uploader_label", target=self.__upload_label_thread, daemon=False)
         self.__thread_label.start()
@@ -176,8 +176,8 @@ class Uploader:
                         self.__upload_en_cours = None
 
     def __upload_label_thread(self):
-        while True:
-            self.__event_upload_in_progress.wait()
+        while self.__stop_event.is_set() is False:
+            self.__event_upload_in_progress.wait(timeout=5)
 
             if isinstance(self.__upload_en_cours, UploadRepertoire):
                 if self.__upload_en_cours.taille is None:

@@ -29,7 +29,7 @@ class Authentification:
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__stop_event = stop_event
 
-        self.thread = Thread(name="Authentification", target=self.run)
+        self.thread = Thread(name="Authentification", target=self.run, daemon=False)
         self.__pret = Event()
         self.__entretien_event = Event()
 

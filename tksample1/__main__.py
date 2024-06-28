@@ -1,7 +1,8 @@
 import logging
+import time
 
 import tkinter as tk
-from threading import Event, Thread
+from threading import Event, Thread, active_count, enumerate
 
 from tksample1.AuthUsager import Authentification, AuthFrame
 from tksample1.Navigation import Navigation, NavigationFrame
@@ -43,7 +44,16 @@ class App:
         self.uploader.quit()
 
         self.__logger.info("Arret complete, exit code : %d" % self.__exit_code)
+
+        active_threads = active_count()
+        if active_threads > 0:
+            self.__logger.warning("Active threads : %d" % active_threads)
+            time.sleep(10)
+            for t in enumerate():
+                self.__logger.warning("Active thread : %s" % t)
+
         exit(self.__exit_code)
+
 
 
 class Window(tk.Tk):
