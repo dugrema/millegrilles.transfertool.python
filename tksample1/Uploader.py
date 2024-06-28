@@ -147,6 +147,8 @@ class Uploader:
         while self.__stop_event.is_set() is False:
             self.update_upload_status()
             self.__event_upload_in_progress.clear()
+            if self.__navigation is not None:
+                self.__navigation.refresh()
             self.__upload_pret.wait()
             self.__upload_pret.clear()
 

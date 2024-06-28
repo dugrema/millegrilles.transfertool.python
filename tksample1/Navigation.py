@@ -12,13 +12,10 @@ from typing import Optional
 from threading import Event, Thread
 
 from millegrilles_messages.messages import Constantes
-from millegrilles_messages.chiffrage.SignatureDomaines import SignatureDomaines
 
 from tksample1.AuthUsager import Authentification
 
-
 from millegrilles_messages.chiffrage.DechiffrageUtils import dechiffrer_reponse, dechiffrer_document_secrete
-from millegrilles_messages.chiffrage.Mgs4 import chiffrer_document_nouveau
 
 LOGGER = logging.getLogger(__name__)
 
@@ -45,26 +42,40 @@ class Navigation:
         uploader.set_navigation(self)
 
         self.__event_dirty = Event()
+        self.__en_erreur: Optional[Exception] = None
 
         self.breadcrumb = list()
 
         self.__cuuid_a_charger = None
         self.__repertoire = None
 
-        self.__thread = Thread(name="Navigation", target=self.run)
+        self.__thread = Thread(name="Navigation", target=self.run, daemon=False)
         self.__thread.start()
 
     def quit(self):
         self.__event_dirty.set()
 
+    def __set_erreur(self, erreur: Optional[Exception]):
+        self.__en_erreur = erreur
+        if erreur is not None:
+            # Ajuster l'ecran
+            self.nav_frame.set_erreur(erreur)
+
     def changer_cuuid(self, cuuid: Optional[str] = None):
         self.__cuuid_a_charger = cuuid
         self.__event_dirty.set()
+
+    def refresh(self):
+        if self.__repertoire is not None:
+            self.changer_cuuid(self.__repertoire.cuuid)
+        else:
+            self.changer_cuuid(None)
 
     def __charger_cuuid(self, cuuid: Optional[str] = None):
         # self.__event_dirty.clear()
         cuuid = cuuid or self.__cuuid_a_charger
         self.__cuuid_a_charger = None
+        self.__set_erreur(None)
 
         if cuuid is None:
             self.__repertoire = sync_collection(self.connexion)
@@ -119,8 +130,12 @@ class Navigation:
 
             self.__event_dirty.clear()
 
-            # Charger le repertoire
-            self.__charger_cuuid()
+            try:
+                # Charger le repertoire
+                self.__charger_cuuid()
+            except Exception as e:
+                self.__logger.exception("Erreur navigation")
+                self.__set_erreur(e)
 
     def ajouter_download(self, tuuid):
         tuuid_node = [f for f in self.__repertoire.fichiers if f['tuuid'] == tuuid].pop()
@@ -144,6 +159,8 @@ class Navigation:
     def creer_collection(self, nom: str):
         cuuid_parent = self.__repertoire.cuuid
         self.uploader.creer_collection(nom, cuuid_parent)
+        # self.changer_cuuid(self.__repertoire.cuuid)
+        self.refresh()
 
     def set_upload_status(self, status: str):
         if self.nav_frame is None:
@@ -279,6 +296,14 @@ class NavigationFrame(tk.Frame):
 
     def set_breadcrumb(self, breadcrumb: pathlib.Path):
         self.breadcrumb.set(str(breadcrumb))
+
+    def set_erreur(self, erreur: Optional[Exception]):
+        children = self.dirlist.get_children()
+        if len(children) > 0:
+            for c in children:
+                self.dirlist.delete(c)
+        if erreur is not None:
+            self.dirlist.insert('', 'end', iid='Erreur', text='Erreur chargement, Refresh')
 
     def afficher_repertoire(self, repertoire: Repertoire):
         self.__repertoire = repertoire
