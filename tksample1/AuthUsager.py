@@ -5,6 +5,7 @@ import logging
 import json
 import os
 import pathlib
+import time
 
 from urllib import parse
 from typing import Optional, Union
@@ -204,8 +205,9 @@ class Authentification:
 
     def deconnecter(self):
         if self.__sio:
-            self.__sio.disconnect()
+            sio = self.__sio
             self.__sio = None
+            sio.disconnect()
         self.auth_frame.set_etat(False)
         self.connect_event.clear()
 
@@ -287,6 +289,19 @@ class Authentification:
             self.socketio_requete_certificat(url)
 
         self.connecter_socketio()
+
+        @self.__sio.on('disconnect')
+        def on_disconnect(sid):
+            if self.__sio is not None:
+                while True:
+                    self.__logger.warning("Deconnecte %s, reconnexion" % sid)
+                    time.sleep(5)
+                    try:
+                        self.connecter_socketio()
+                        self.__logger.info("Reconnecte")
+                        break
+                    except Exception:
+                        self.__logger.exception("Erreur reconnexion")
 
     def socketio_requete_certificat(self, url: parse.ParseResult):
         connexion_socketio = f'https://{url.hostname}'
@@ -383,7 +398,10 @@ class Authentification:
 
         http_session = self.get_https_session()
 
-        sio = socketio.Client(http_session=http_session)
+        if self.__sio is not None:
+            sio = self.__sio
+        else:
+            sio = socketio.Client(http_session=http_session)
 
         path_app = f'{url.path}/socket.io'
         self.__logger.debug("Connecter socket.io %s path %s" % (connexion_socketio, path_app))

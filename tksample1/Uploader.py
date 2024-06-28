@@ -257,7 +257,7 @@ class Uploader:
                 except KeyError:
                     fichier_item = UploadFichier(cuuid_courant, t, upload)
                     self.upload_fichier(fichier_item)
-                    upload.add_fichiers_traite(1)
+                upload.add_fichiers_traite(1)
 
         pass
 
@@ -356,10 +356,10 @@ class Uploader:
         headers = {
             'x-token-jwt': batch_upload_token['token'],
         }
-        reponse = self.__https_session.post(url_confirmation, headers=headers, json=confirmation_data, timeout=30)
+        reponse = self.__https_session.post(url_confirmation, headers=headers, json=confirmation_data, timeout=45)
         if reponse.status_code == 200:
-            reponse_status = reponse.json()
-            raise Exception('Erreur post : %s' % reponse_status)
+            reponse_status = reponse.text
+            self.__logger.error('Erreur POST fichier %s : %s' % (data_dechiffre_transaction, reponse_status))
         else:
             reponse.raise_for_status()
 
