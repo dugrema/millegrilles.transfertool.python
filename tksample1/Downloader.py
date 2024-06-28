@@ -60,14 +60,11 @@ class Downloader:
 
         self.__download_en_cours: Optional[Union[DownloadFichier, DownloadRepertoire]] = None
         self.__event_download_in_progress = Event()
+        self.__navigation = None
+        self.__https_session: Optional[requests.Session] = None
 
         self.__thread = Thread(name="downloader", target=self.download_thread)
         self.__thread.start()
-
-        self.__https_session: Optional[requests.Session] = None
-
-        self.__navigation = None
-
         self.__thread_download_status = Thread(name="downloader_status", target=self.__download_label_thread, daemon=False)
         self.__thread_download_status.start()
 
@@ -212,16 +209,21 @@ class Downloader:
         path_reception_work = pathlib.Path(item.path_destination, item.nom + '.work')
         self.__logger.debug("Debut download fichier %s (taille : %d)" % (path_reception_work, item.taille_chiffree))
         chunks_done = 0
-        with open(path_reception_work, 'xb') as output:
-            response = self.__https_session.get(url_fichier)
-            response.raise_for_status()
+        try:
+            with open(path_reception_work, 'xb') as output:
+                response = self.__https_session.get(url_fichier)
+                response.raise_for_status()
 
-            for chunk in response.iter_content(chunk_size=64*1024):
-                output.write(chunk)
-                chunks_done += 1
-                item.taille_recue += len(chunk)
+                for chunk in response.iter_content(chunk_size=64*1024):
+                    output.write(chunk)
+                    chunks_done += 1
+                    item.taille_recue += len(chunk)
+        except FileExistsError:
+            # TODO: Voir si on doit resumer
+            self.__logger.warning("Fichier %s existe deja, voir si on peut le dechiffrer" % path_reception_work)
+        else:
+            self.__logger.debug("Download fichier %s complete, dechiffrage en cours" % path_reception_work)
 
-        self.__logger.debug("Download fichier %s complete, dechiffrage en cours" % path_reception_work)
         try:
             dechiffrer_in_place(item, path_reception_work)
         except Exception as e:
