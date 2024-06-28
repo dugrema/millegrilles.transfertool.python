@@ -165,12 +165,18 @@ class Navigation:
     def set_upload_status(self, status: str):
         if self.nav_frame is None:
             return  # Init en cours
-        self.nav_frame.set_upload_status(status)
+        try:
+            self.nav_frame.set_upload_status(status)
+        except:
+            self.__logger.exception("Erreur set_upload_status")
 
     def set_download_status(self, status: str):
         if self.nav_frame is None:
             return  # Init en cours
-        self.nav_frame.set_download_status(status)
+        try:
+            self.nav_frame.set_download_status(status)
+        except:
+            self.__logger.exception("Erreur set_download_status")
 
 
 class NavigationFrame(tk.Frame):
