@@ -90,6 +90,10 @@ class UploadFichier:
         else:
             self.__taille_uploade += taille
 
+    def reset_taille_uploade(self):
+        self.add_chunk_uploade(-1 * self.__taille_uploade)
+        self.__taille_uploade = 0
+
     @property
     def taille_uploade(self):
         return self.__taille_uploade
@@ -269,6 +273,7 @@ class Uploader:
             try:
                 if retry_count > 0:
                     self.__logger.info("Upload fichier %s retry %d" % (upload.path, retry_count))
+                    upload.reset_taille_uploade()
                 self.__upload_fichier_1pass(upload)
                 break
             except:
@@ -461,7 +466,6 @@ def file_iterator(stop_event: Event, fp, cipher, hacheur, maxsize, upload: Uploa
         chunk = cipher.update(chunk)
         if len(chunk) > 0:
             current_output_size += len(chunk)
-            time.sleep(1)
             yield chunk
 
 

@@ -291,12 +291,17 @@ class Authentification:
         self.connecter_socketio()
 
         @self.__sio.on('disconnect')
-        def on_disconnect(sid):
+        def on_disconnect():
             if self.__sio is not None:
-                while True:
-                    self.__logger.warning("Deconnecte %s, reconnexion" % sid)
-                    time.sleep(5)
+                while self.__stop_event.is_set() is False:
+                    self.__logger.warning("Deconnecte, reconnexion dans 5 secondes")
+                    time.sleep(2)
                     try:
+                        sio = self.__sio
+                        self.__sio = None
+                        if sio is not None:
+                            sio.disconnect()
+                        time.sleep(2)
                         self.connecter_socketio()
                         self.__logger.info("Reconnecte")
                         break
@@ -391,27 +396,7 @@ class Authentification:
         http_session.cert = (self.__path_cert, self.__path_cle)
         return http_session
 
-    def connecter_socketio(self):
-        # Reconnecter socketio par https avec client ssl
-        url = self.__url_collection
-        connexion_socketio = f'https://{url.hostname}:444'
-
-        http_session = self.get_https_session()
-
-        if self.__sio is not None:
-            sio = self.__sio
-        else:
-            sio = socketio.Client(http_session=http_session)
-
-        path_app = f'{url.path}/socket.io'
-        self.__logger.debug("Connecter socket.io %s path %s" % (connexion_socketio, path_app))
-        sio.connect(connexion_socketio, socketio_path=path_app)
-
-        self.__sio = sio
-
-        # Initialiser le formatteur de message pour signer authentification
-        self.initialiser_formatteur()
-
+    def authentifier_socketio(self, sio):
         # Recuperer un challenge d'authentification a signer avec le certificat
         reponse_generer = sio.call('genererChallengeCertificat')
         self.__logger.debug("Reponse generer : %s" % reponse_generer)
@@ -435,6 +420,29 @@ class Authentification:
         if contenu.get('ok') is not True:
             self.__logger.error("Erreur upgrade socket.io : %s" % reponse_upgrade.get('err'))
             raise Exception('Erreur auth connexion socket.io')
+
+    def connecter_socketio(self):
+        # Reconnecter socketio par https avec client ssl
+        url = self.__url_collection
+        connexion_socketio = f'https://{url.hostname}:444'
+
+        http_session = self.get_https_session()
+
+        if self.__sio is not None:
+            sio = self.__sio
+        else:
+            sio = socketio.Client(http_session=http_session)
+
+        path_app = f'{url.path}/socket.io'
+        self.__logger.debug("Connecter socket.io %s path %s" % (connexion_socketio, path_app))
+        sio.connect(connexion_socketio, socketio_path=path_app)
+
+        self.__sio = sio
+
+        # Initialiser le formatteur de message pour signer authentification
+        self.initialiser_formatteur()
+
+        self.authentifier_socketio(sio)
 
         # Authentification reussie
         self.auth_frame.set_etat(connecte=True)
