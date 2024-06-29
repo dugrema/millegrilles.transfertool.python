@@ -247,6 +247,7 @@ class Downloader:
                     chunks_done += 1
                     item.taille_recue += len(chunk)
                     if self.__stop_event.is_set() is True:
+                        path_reception_work.unlink()
                         raise Exception("Stopping")
         except FileExistsError:
             # TODO: Voir si on doit resumer
