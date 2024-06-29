@@ -2,7 +2,6 @@ import datetime
 import logging
 import json
 import os.path
-import time
 
 import requests
 import tkinter as tk
@@ -12,6 +11,7 @@ import mimetypes
 from threading import Event, Thread
 from typing import Optional, Union
 from urllib import parse
+from wakepy import keep
 
 from millegrilles_messages.messages import Constantes
 from millegrilles_messages.chiffrage.Mgs4 import CipherMgs4, chiffrer_document, chiffrer_document_nouveau
@@ -173,28 +173,29 @@ class Uploader:
             self.__upload_pret.wait()
             self.__upload_pret.clear()
 
-            while True:
-                # self.update_upload_status()
-                try:
-                    self.__upload_en_cours = self.__upload_queue.pop(0)
-                    self.__event_upload_in_progress.set()
-                except IndexError:
-                    break
-                else:
-                    if self.__stop_event.is_set():
-                        return  # Stopping
+            with keep.running():  # Empecher sleep mode
+                while True:
+                    # self.update_upload_status()
                     try:
-                        # self.update_upload_status()
-                        if isinstance(self.__upload_en_cours, UploadFichier):
-                            self.upload_fichier(self.__upload_en_cours)
-                        elif isinstance(self.__upload_en_cours, UploadRepertoire):
-                            self.upload_repertoire(self.__upload_en_cours)
-                        else:
-                            self.__logger.error("Type upload non supporte : %s" % self.__upload_en_cours)
-                    except Exception:
-                        self.__logger.exception("Erreur upload")
-                    finally:
-                        self.__upload_en_cours = None
+                        self.__upload_en_cours = self.__upload_queue.pop(0)
+                        self.__event_upload_in_progress.set()
+                    except IndexError:
+                        break
+                    else:
+                        if self.__stop_event.is_set():
+                            return  # Stopping
+                        try:
+                            # self.update_upload_status()
+                            if isinstance(self.__upload_en_cours, UploadFichier):
+                                self.upload_fichier(self.__upload_en_cours)
+                            elif isinstance(self.__upload_en_cours, UploadRepertoire):
+                                self.upload_repertoire(self.__upload_en_cours)
+                            else:
+                                self.__logger.error("Type upload non supporte : %s" % self.__upload_en_cours)
+                        except Exception:
+                            self.__logger.exception("Erreur upload")
+                        finally:
+                            self.__upload_en_cours = None
 
     def upload_status(self):
         status = self.__upload_status()

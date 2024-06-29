@@ -1,10 +1,12 @@
 import logging
 import pathlib
 import time
+import requests
+
 from threading import Event, Thread
 from urllib import parse
 from typing import Optional, Union
-import requests
+from wakepy import keep
 
 from millegrilles_messages.chiffrage.Mgs4 import DecipherMgs4
 from tksample1.Navigation import sync_collection
@@ -118,28 +120,29 @@ class Downloader:
             self.__download_pret.wait()
             self.__download_pret.clear()
 
-            while True:
-                try:
-                    self.__download_en_cours = self.__download_queue.pop(0)
-                    self.__event_download_in_progress.set()
-                except IndexError:
-                    break
-                else:
-                    if self.__stop_event.is_set():
-                        return  # Stopping
+            with keep.running():  # Empecher mode sleep
+                while True:
                     try:
-                        if isinstance(self.__download_en_cours, DownloadFichier):
-                            self.download_fichier(self.__download_en_cours)
-                            self.__logger.debug("Fin download fichier %s" % self.__download_en_cours.nom)
-                        elif isinstance(self.__download_en_cours, DownloadRepertoire):
-                            self.download_repertoire(self.__download_en_cours)
-                            self.__logger.debug("Fin download repertoire %s" % self.__download_en_cours.nom)
-                        else:
-                            self.__logger.error("Type download non supporte : %s" % self.__download_en_cours)
-                    except Exception:
-                        self.__logger.exception("Erreur download fichier %s" % self.__download_en_cours.nom)
-                    finally:
-                        self.__download_en_cours = None
+                        self.__download_en_cours = self.__download_queue.pop(0)
+                        self.__event_download_in_progress.set()
+                    except IndexError:
+                        break
+                    else:
+                        if self.__stop_event.is_set():
+                            return  # Stopping
+                        try:
+                            if isinstance(self.__download_en_cours, DownloadFichier):
+                                self.download_fichier(self.__download_en_cours)
+                                self.__logger.debug("Fin download fichier %s" % self.__download_en_cours.nom)
+                            elif isinstance(self.__download_en_cours, DownloadRepertoire):
+                                self.download_repertoire(self.__download_en_cours)
+                                self.__logger.debug("Fin download repertoire %s" % self.__download_en_cours.nom)
+                            else:
+                                self.__logger.error("Type download non supporte : %s" % self.__download_en_cours)
+                        except Exception:
+                            self.__logger.exception("Erreur download fichier %s" % self.__download_en_cours.nom)
+                        finally:
+                            self.__download_en_cours = None
 
     # def __download_label_thread(self):
     #     while self.__stop_event.is_set() is False:

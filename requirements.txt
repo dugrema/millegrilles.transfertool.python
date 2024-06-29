@@ -1,6 +1,7 @@
 requests
 python-socketio[client]
 websocket-client
+wakepy
 
 --extra-index-url https://millegrilles.mdugre.info/python/dist
 millegrilles_messages>=2024.5.32
