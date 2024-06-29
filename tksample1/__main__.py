@@ -63,6 +63,8 @@ class Window(tk.Tk):
 
         super().__init__(*args, **kwargs)
 
+        self.title("Transfer Tool - MilleGrilles")
+
         self.geometry("800x600")
 
         self.auth = auth
