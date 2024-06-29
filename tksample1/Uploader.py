@@ -1,6 +1,7 @@
 import datetime
 import logging
 import json
+import os.path
 import time
 
 import requests
@@ -131,6 +132,18 @@ class Uploader:
         self.__thread.start()
         # self.__thread_label = Thread(name="uploader_label", target=self.__upload_label_thread, daemon=False)
         # self.__thread_label.start()
+
+        self.__init_mime_types()
+
+    def __init_mime_types(self):
+        import tksample1
+        path_module = pathlib.Path(os.path.abspath(tksample1.__file__))
+        path_json = pathlib.Path(path_module.parent, 'mimetypes.json')
+        with open(path_json) as fichier:
+            json_mt = json.load(fichier)
+            for ext, mt in json_mt.items():
+                mimetypes.add_type(mt, "." + ext)
+
 
     def set_navigation(self, navigation):
         self.__navigation = navigation
