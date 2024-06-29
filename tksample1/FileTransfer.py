@@ -64,29 +64,45 @@ class TransferHandler:
     def thread_status(self):
         upload_comp = None
         upload_q_comp = None
+        download_comp = None
+        download_q_comp = None
         while self.__stop_event.is_set() is False:
-            if self.transfer_frame is not None:
-                # Update status
-                status_download = 'Download inactif'
-                self.transfer_frame.download_status_var.set(status_download)
+            self.__transfer_dirty.clear()
+            try:
+                if self.transfer_frame is not None:
+                    # Update status
+                    # status_download = 'Download inactif'
+                    status_download, download_en_cours, q_download = self.downloader.download_status()
+                    self.transfer_frame.download_status_var.set(status_download)
 
-                status_upload, upload_en_cours, q_upload = self.uploader.upload_status()
-                self.transfer_frame.upload_status_var.set(status_upload)
-                if upload_comp is not upload_en_cours:
-                    upload_comp = upload_en_cours
-                    self.__upload_dirty = True
-                if upload_q_comp != q_upload:
-                    upload_q_comp = q_upload.copy()
-                    self.__upload_dirty = True
+                    status_upload, upload_en_cours, q_upload = self.uploader.upload_status()
+                    self.transfer_frame.upload_status_var.set(status_upload)
+                    if upload_comp is not upload_en_cours:
+                        upload_comp = upload_en_cours
+                        self.__upload_dirty = True
+                    if upload_q_comp != q_upload:
+                        upload_q_comp = q_upload.copy()
+                        self.__upload_dirty = True
 
-                if self.__upload_dirty:
-                    self.__upload_dirty = False
-                    # Refresh liste uploads
-                    self.transfer_frame.refresh_upload(upload_en_cours, q_upload)
+                    if self.__upload_dirty:
+                        self.__upload_dirty = False
+                        # Refresh liste uploads
+                        self.transfer_frame.refresh_upload(upload_en_cours, q_upload)
 
-                if self.__download_dirty:
-                    self.__download_dirty = False
-                    # Refresh liste downloads
+                    if download_comp is not download_en_cours:
+                        download_comp = download_en_cours
+                        self.__download_dirty = True
+                    if download_q_comp != q_download:
+                        download_q_comp = q_download.copy()
+                        self.__download_dirty = True
+
+                    if self.__download_dirty:
+                        self.__download_dirty = False
+                        # Refresh liste downloads
+                        self.transfer_frame.refresh_download(download_en_cours, q_download)
+            except:
+                self.__logger.exception("Erreur refresh transferts")
+                self.__transfer_dirty.wait(timeout=10)
 
             self.__transfer_dirty.wait(timeout=1)
 
@@ -150,3 +166,22 @@ class TransferFrame(tk.Frame):
                 item.preparer_taille()
                 self.__treeview_upload.insert('', 'end', iid=path_item, text=path_item,
                                               values=(item.taille, "Attente"))
+
+    def refresh_download(self, courant, q: list):
+        self.__treeview_download.delete(*self.__treeview_download.get_children())
+        if courant is not None:
+            nom_fichier = courant.nom
+            try:
+                taille = str(courant.taille_chiffree)
+            except AttributeError:
+                taille = "N/D"
+            self.__treeview_download.insert('', 'end', iid=courant.tuuid, text=nom_fichier, values=(taille, "En cours"))
+        for item in q:
+            nom_item = item.nom
+            if isinstance(item, DownloadFichier):
+                self.__treeview_download.insert('', 'end', iid=item.tuuid, text=nom_item,
+                                              values=(item.taille_chiffree, "Attente"))
+            else:
+                item.preparer_taille()
+                self.__treeview_download.insert('', 'end', iid=item.tuuid, text=nom_item,
+                                              values=("N/D", "Attente"))

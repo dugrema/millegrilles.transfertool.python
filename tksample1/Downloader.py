@@ -33,6 +33,10 @@ class DownloadFichier:
     def wait(self):
         return self.download_complete.wait()
 
+    @property
+    def tuuid(self):
+        return self.__info['tuuid']
+
 
 class DownloadRepertoire:
 
@@ -46,6 +50,10 @@ class DownloadRepertoire:
 
     def wait(self):
         return self.download_complete.wait()
+
+    @property
+    def tuuid(self):
+        return self.__info['tuuid']
 
 
 class Downloader:
@@ -101,7 +109,7 @@ class Downloader:
 
     def download_thread(self):
         while self.__stop_event.is_set() is False:
-            self.update_download_status()
+            # self.update_download_status()
             self.__event_download_in_progress.clear()
             self.__download_pret.wait()
             self.__download_pret.clear()
@@ -129,39 +137,59 @@ class Downloader:
                     finally:
                         self.__download_en_cours = None
 
-    def __download_label_thread(self):
-        while self.__stop_event.is_set() is False:
-            self.__event_download_in_progress.wait(timeout=5)
+    # def __download_label_thread(self):
+    #     while self.__stop_event.is_set() is False:
+    #         self.__event_download_in_progress.wait(timeout=5)
+    #
+    #         # if isinstance(self.__download_en_cours, DownloadRepertoire):
+    #         #     if self.__download_en_cours.taille is None:
+    #         #         self.__download_en_cours.preparer_taille()
+    #
+    #         self.update_download_status()
+    #         time.sleep(1)
+    #
+    # def update_download_status(self):
+    #     if self.__navigation is None:
+    #         return  # Pas initialise
+    #
+    #     if self.__download_en_cours is not None:
+    #         # try:
+    #         #     progres = int(self.__download_en_cours.taille_downloade * 100.0 / self.__download_en_cours.taille)
+    #         #     fichiers_restants = len(self.__download_queue)
+    #         #     if isinstance(self.__download_en_cours, DownloadRepertoire):
+    #         #         fichiers_restants += self.__download_en_cours.nombre_sous_fichiers - self.__download_en_cours.fichiers_uploades
+    #         #     if fichiers_restants > 0:
+    #         #         self.__navigation.set_upload_status(
+    #         #             'Download %d%% (%d fichiers restants)' % (progres, fichiers_restants))
+    #         #     else:
+    #         #         self.__navigation.set_upload_status('Uploading %d%%' % progres)
+    #         # except Exception as e:
+    #         #     self.__logger.debug("Erreur update upload : %s" % e)
+    #         self.__navigation.set_download_status('Downloading ...')
+    #     elif len(self.__download_queue) > 0:
+    #         self.__navigation.set_download_status('Downloading ...')
+    #     else:
+    #         self.__navigation.set_download_status('Download inactif')
 
-            # if isinstance(self.__download_en_cours, DownloadRepertoire):
-            #     if self.__download_en_cours.taille is None:
-            #         self.__download_en_cours.preparer_taille()
+    def download_status(self):
+        status = self.__download_status()
+        return status, self.__download_en_cours, self.__download_queue
 
-            self.update_download_status()
-            time.sleep(1)
-
-    def update_download_status(self):
-        if self.__navigation is None:
-            return  # Pas initialise
-
+    def __download_status(self):
         if self.__download_en_cours is not None:
-            # try:
-            #     progres = int(self.__download_en_cours.taille_downloade * 100.0 / self.__download_en_cours.taille)
-            #     fichiers_restants = len(self.__download_queue)
-            #     if isinstance(self.__download_en_cours, DownloadRepertoire):
-            #         fichiers_restants += self.__download_en_cours.nombre_sous_fichiers - self.__download_en_cours.fichiers_uploades
-            #     if fichiers_restants > 0:
-            #         self.__navigation.set_upload_status(
-            #             'Download %d%% (%d fichiers restants)' % (progres, fichiers_restants))
-            #     else:
-            #         self.__navigation.set_upload_status('Uploading %d%%' % progres)
-            # except Exception as e:
-            #     self.__logger.debug("Erreur update upload : %s" % e)
-            self.__navigation.set_download_status('Downloading ...')
+            try:
+                if isinstance(self.__download_en_cours, DownloadFichier):
+                    progres = int(self.__download_en_cours.taille_recue * 100.0 / self.__download_en_cours.taille_chiffree)
+                    return 'Downloading %d%%' % progres
+                else:
+                    return 'Downloading ...'
+            except Exception as e:
+                self.__logger.debug("Erreur update upload : %s" % e)
+                return 'Downloading ...'
         elif len(self.__download_queue) > 0:
-            self.__navigation.set_download_status('Downloading ...')
+            return 'Downloading ...'
         else:
-            self.__navigation.set_download_status('Download inactif')
+            return 'Download inactif'
 
     def download_repertoire(self, item: DownloadRepertoire):
         tuuid = item.cuuid
@@ -218,6 +246,7 @@ class Downloader:
                     output.write(chunk)
                     chunks_done += 1
                     item.taille_recue += len(chunk)
+                    time.sleep(0.1)
         except FileExistsError:
             # TODO: Voir si on doit resumer
             self.__logger.warning("Fichier %s existe deja, voir si on peut le dechiffrer" % path_reception_work)
