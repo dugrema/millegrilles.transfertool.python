@@ -29,17 +29,16 @@ class Repertoire:
 
 class Navigation:
 
-    def __init__(self, stop_event, connexion: Authentification, downloader, uploader):
+    # def __init__(self, stop_event, connexion: Authentification, downloader, uploader):
+    def __init__(self, stop_event, connexion: Authentification, transfer_handler):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__stop_event = stop_event
         self.frame = None
         self.connexion = connexion
-        self.downloader = downloader
-        self.uploader = uploader
+        self.transfer_handler = transfer_handler
         self.nav_frame = None
 
-        downloader.set_navigation(self)
-        uploader.set_navigation(self)
+        transfer_handler.set_navigation(self)
 
         self.__event_dirty = Event()
         self.__en_erreur: Optional[Exception] = None
@@ -140,25 +139,25 @@ class Navigation:
     def ajouter_download(self, tuuid):
         tuuid_node = [f for f in self.__repertoire.fichiers if f['tuuid'] == tuuid].pop()
         if tuuid_node['type_node'] == 'Fichier':
-            self.downloader.ajouter_download_fichier(tuuid_node)
+            self.transfer_handler.ajouter_download_fichier(tuuid_node)
         else:
-            self.downloader.ajouter_download_repertoire(tuuid_node)
+            self.transfer_handler.ajouter_download_repertoire(tuuid_node)
 
     def upload_fichier(self, path_fichier: str):
         cuuid = self.__repertoire.cuuid
         if cuuid is None:
             raise Exception('Upload dans Favoris non supporte')
-        self.uploader.ajouter_upload(cuuid, path_fichier)
+        self.transfer_handler.ajouter_upload(cuuid, path_fichier)
 
     def upload_directory(self, path_dir: str):
         cuuid = self.__repertoire.cuuid
         if cuuid is None:
             raise Exception('Upload dans Favoris non supporte')
-        self.uploader.ajouter_upload(cuuid, path_dir)
+        self.transfer_handler.ajouter_upload(cuuid, path_dir)
 
     def creer_collection(self, nom: str):
         cuuid_parent = self.__repertoire.cuuid
-        self.uploader.creer_collection(nom, cuuid_parent)
+        self.transfer_handler.creer_collection(nom, cuuid_parent)
         # self.changer_cuuid(self.__repertoire.cuuid)
         self.refresh()
 
@@ -183,6 +182,7 @@ class NavigationFrame(tk.Frame):
 
     def __init__(self, navigation, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__navigation = navigation
         self.__repertoire: Optional[Repertoire] = None
@@ -225,6 +225,7 @@ class NavigationFrame(tk.Frame):
         self.dirlist.heading("type", text="Type")
         self.dirlist.heading("date", text="Date")
 
+        self.dirlist.column("#0", width=440)
         self.dirlist.column("taille", width=90, anchor='se')
         self.dirlist.column("type", width=100)
         self.dirlist.column("date", width=145)
@@ -239,6 +240,12 @@ class NavigationFrame(tk.Frame):
         # Configuring treeview
         verscrlbar.pack(side=tk.LEFT, fill='y')
         self.dirlist.configure(xscrollcommand=verscrlbar.set)
+
+        self.__frame_actions.grid(row=0, column=0)
+        self.__frame_actions.grid(row=1, column=0)
+        self.__frame_breadcrumb.grid(row=2, column=0)
+        self.__frame_transfer_status.grid(row=3, column=0)
+        self.__dir_frame.grid(row=4, column=0)
 
         self.widget_bind()
 

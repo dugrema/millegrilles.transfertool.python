@@ -2,12 +2,12 @@ import logging
 import time
 
 import tkinter as tk
+from tkinter import ttk
 from threading import Event, Thread, active_count, enumerate
 
 from tksample1.AuthUsager import Authentification, AuthFrame
 from tksample1.Navigation import Navigation, NavigationFrame
-from tksample1.Downloader import Downloader
-from tksample1.Uploader import Uploader
+from tksample1.FileTransfer import TransferHandler, TransferFrame
 
 
 class App:
@@ -17,10 +17,9 @@ class App:
         self.__stop_event = Event()
         self.__exit_code = 0
         self.auth = Authentification(self.__stop_event)
-        self.downloader = Downloader(self.__stop_event, self.auth)
-        self.uploader = Uploader(self.__stop_event, self.auth)
-        self.navigation = Navigation(self.__stop_event, self.auth, self.downloader, self.uploader)
-        self.window = Window(self.__stop_event, self.auth, self.navigation)
+        self.transfer_handler = TransferHandler(self.__stop_event, self.auth)
+        self.navigation = Navigation(self.__stop_event, self.auth, self.transfer_handler)
+        self.window = Window(self.__stop_event, self.auth, self.navigation, self.transfer_handler)
 
     def exec(self):
         self.__logger.info("Debut mainloop")
@@ -40,8 +39,9 @@ class App:
         self.window.quit()
         self.auth.quit()
         self.navigation.quit()
-        self.downloader.quit()
-        self.uploader.quit()
+        # self.downloader.quit()
+        # self.uploader.quit()
+        self.transfer_handler.quit()
 
         self.__logger.info("Arret complete, exit code : %d" % self.__exit_code)
 
@@ -55,27 +55,38 @@ class App:
         exit(self.__exit_code)
 
 
-
 class Window(tk.Tk):
 
-    def __init__(self, stop_event: Event, auth: Authentification, navigation: Navigation, *args, **kwargs):
+    def __init__(self, stop_event: Event, auth: Authentification, navigation: Navigation, transfer_handler: TransferHandler, *args, **kwargs):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__stop_event = stop_event
 
         super().__init__(*args, **kwargs)
 
+        self.geometry("800x600")
+
         self.auth = auth
+
+        self.__frame_notebook = ttk.Notebook(self)
 
         self.__frame_auth = AuthFrame(auth)
         # self.__frame_auth.pack()
         self.__frame_auth.grid(row=0, column=0)
-        self.__frame_navigation = NavigationFrame(navigation)
+
+        self.__frame_notebook.grid(row=1, column=0)
+
+        self.__frame_navigation = NavigationFrame(navigation, master=self.__frame_notebook)
         # self.__frame_navigation.pack()
-        self.__frame_navigation.grid(row=1, column=0)
+        self.__frame_notebook.add(self.__frame_navigation, text="Navigation")
+        # grid(row=0, column=0)
+
+        self.__frame_transfert = TransferFrame(transfer_handler)
+        self.__frame_notebook.add(self.__frame_transfert, text="Transferts")
 
         # Wiring du frame dans Authentification - permet changer affichage
         self.auth.auth_frame = self.__frame_auth
         navigation.nav_frame = self.__frame_navigation
+        transfer_handler.transfer_frame = self.__frame_transfert
 
 
 if __name__ == '__main__':
