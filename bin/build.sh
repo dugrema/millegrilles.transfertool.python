@@ -1,2 +1,2 @@
 #!/bin/env bash
-zip -r tksample1.zip tksample1 requirements.txt
+zip -r mgtransfertool_BUILD.zip tksample1 bin requirements.txt
