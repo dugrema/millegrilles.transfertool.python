@@ -246,7 +246,6 @@ class Downloader:
                     output.write(chunk)
                     chunks_done += 1
                     item.taille_recue += len(chunk)
-                    time.sleep(0.1)
         except FileExistsError:
             # TODO: Voir si on doit resumer
             self.__logger.warning("Fichier %s existe deja, voir si on peut le dechiffrer" % path_reception_work)
