@@ -174,14 +174,16 @@ class TransferFrame(tk.Frame):
             try:
                 taille = str(courant.taille_chiffree)
             except AttributeError:
+                courant.preparer_taille(self.__transfer_handler.connexion)
                 taille = "N/D"
             self.__treeview_download.insert('', 'end', iid=courant.tuuid, text=nom_fichier, values=(taille, "En cours"))
         for item in q:
             nom_item = item.nom
             if isinstance(item, DownloadFichier):
                 self.__treeview_download.insert('', 'end', iid=item.tuuid, text=nom_item,
-                                              values=(item.taille_chiffree, "Attente"))
+                                                values=(item.taille_chiffree, "Attente"))
             else:
-                item.preparer_taille()
+                courant.preparer_taille(self.__transfer_handler.connexion)
+                taille = "N/D"
                 self.__treeview_download.insert('', 'end', iid=item.tuuid, text=nom_item,
-                                              values=("N/D", "Attente"))
+                                                values=(taille, "Attente"))

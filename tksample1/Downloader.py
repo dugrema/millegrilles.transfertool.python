@@ -55,6 +55,10 @@ class DownloadRepertoire:
     def tuuid(self):
         return self.__info['tuuid']
 
+    def preparer_taille(self, connexion):
+        # connexion.call()  # TODO Charger stats du repertoire pour obtenir taille totale
+        pass
+
 
 class Downloader:
 
