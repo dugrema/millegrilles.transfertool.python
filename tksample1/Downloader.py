@@ -65,8 +65,8 @@ class Downloader:
 
         self.__thread = Thread(name="downloader", target=self.download_thread, daemon=False)
         self.__thread.start()
-        self.__thread_download_status = Thread(name="downloader_status", target=self.__download_label_thread, daemon=False)
-        self.__thread_download_status.start()
+        # self.__thread_download_status = Thread(name="downloader_status", target=self.__download_label_thread, daemon=False)
+        # self.__thread_download_status.start()
 
         # self.__destination = pathlib.Path('/tmp')
 

@@ -322,8 +322,9 @@ class NavigationFrame(tk.Frame):
         self.__repertoire = repertoire
         children = self.dirlist.get_children()
         if len(children) > 0:
-            for c in children:
-                self.dirlist.delete(c)
+            self.dirlist.delete(*children)
+            # for c in children:
+            #     self.dirlist.delete(c)
 
         def sort_nom(item):
             if item['type_node'] == 'Fichier':
@@ -334,6 +335,7 @@ class NavigationFrame(tk.Frame):
 
         fichiers_tries = sorted(self.__repertoire.fichiers, key=sort_nom)
 
+        rows = []
         for fichier in fichiers_tries:
             nom_fichier = fichier.get('nom') or fichier['tuuid']
             taille_fichier = ''

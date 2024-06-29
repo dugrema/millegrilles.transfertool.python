@@ -129,8 +129,8 @@ class Uploader:
 
         self.__thread = Thread(name="uploader", target=self.upload_thread, daemon=False)
         self.__thread.start()
-        self.__thread_label = Thread(name="uploader_label", target=self.__upload_label_thread, daemon=False)
-        self.__thread_label.start()
+        # self.__thread_label = Thread(name="uploader_label", target=self.__upload_label_thread, daemon=False)
+        # self.__thread_label.start()
 
     def set_navigation(self, navigation):
         self.__navigation = navigation
@@ -153,7 +153,7 @@ class Uploader:
 
     def upload_thread(self):
         while self.__stop_event.is_set() is False:
-            self.update_upload_status()
+            # self.update_upload_status()
             self.__event_upload_in_progress.clear()
             if self.__navigation is not None:
                 self.__navigation.refresh()
@@ -161,7 +161,7 @@ class Uploader:
             self.__upload_pret.clear()
 
             while True:
-                self.update_upload_status()
+                # self.update_upload_status()
                 try:
                     self.__upload_en_cours = self.__upload_queue.pop(0)
                     self.__event_upload_in_progress.set()
@@ -171,7 +171,7 @@ class Uploader:
                     if self.__stop_event.is_set():
                         return  # Stopping
                     try:
-                        self.update_upload_status()
+                        # self.update_upload_status()
                         if isinstance(self.__upload_en_cours, UploadFichier):
                             self.upload_fichier(self.__upload_en_cours)
                         elif isinstance(self.__upload_en_cours, UploadRepertoire):
@@ -183,20 +183,47 @@ class Uploader:
                     finally:
                         self.__upload_en_cours = None
 
-    def __upload_label_thread(self):
-        while self.__stop_event.is_set() is False:
-            self.__event_upload_in_progress.wait(timeout=5)
+    # def __upload_label_thread(self):
+    #     while self.__stop_event.is_set() is False:
+    #         self.__event_upload_in_progress.wait(timeout=5)
+    #
+    #         if isinstance(self.__upload_en_cours, UploadRepertoire):
+    #             if self.__upload_en_cours.taille is None:
+    #                 self.__upload_en_cours.preparer_taille()
+    #
+    #         self.update_upload_status()
+    #         time.sleep(1)
 
-            if isinstance(self.__upload_en_cours, UploadRepertoire):
-                if self.__upload_en_cours.taille is None:
-                    self.__upload_en_cours.preparer_taille()
+    # def update_upload_status(self):
+    #     if self.__navigation is None:
+    #         return  # Pas initialise
+    #
+    #     if self.__upload_en_cours is not None:
+    #         try:
+    #             progres = int(self.__upload_en_cours.taille_uploade * 100.0 / self.__upload_en_cours.taille)
+    #             fichiers_restants = len(self.__upload_queue)
+    #             if isinstance(self.__upload_en_cours, UploadRepertoire):
+    #                 fichiers_restants += self.__upload_en_cours.nombre_sous_fichiers - self.__upload_en_cours.fichiers_uploades
+    #             if fichiers_restants > 0:
+    #                 self.__navigation.set_upload_status('Uploading %d%% (%d fichiers restants)' % (progres, fichiers_restants))
+    #             else:
+    #                 self.__navigation.set_upload_status('Uploading %d%%' % progres)
+    #         except Exception as e:
+    #             self.__logger.debug("Erreur update upload : %s" % e)
+    #             self.__navigation.set_upload_status('Uploading ...')
+    #     elif len(self.__upload_queue) > 0:
+    #         self.__navigation.set_upload_status('Uploading ...')
+    #     else:
+    #         self.__navigation.set_upload_status('Upload inactif')
 
-            self.update_upload_status()
-            time.sleep(1)
+    def upload_status(self):
+        status = self.__upload_status()
+        return status, self.__upload_en_cours, self.__upload_queue
 
-    def update_upload_status(self):
-        if self.__navigation is None:
-            return  # Pas initialise
+    def __upload_status(self):
+        if isinstance(self.__upload_en_cours, UploadRepertoire):
+            if self.__upload_en_cours.taille is None:
+                self.__upload_en_cours.preparer_taille()
 
         if self.__upload_en_cours is not None:
             try:
@@ -205,16 +232,16 @@ class Uploader:
                 if isinstance(self.__upload_en_cours, UploadRepertoire):
                     fichiers_restants += self.__upload_en_cours.nombre_sous_fichiers - self.__upload_en_cours.fichiers_uploades
                 if fichiers_restants > 0:
-                    self.__navigation.set_upload_status('Uploading %d%% (%d fichiers restants)' % (progres, fichiers_restants))
+                    return 'Uploading %d%% (%d fichiers restants)' % (progres, fichiers_restants)
                 else:
-                    self.__navigation.set_upload_status('Uploading %d%%' % progres)
+                    return 'Uploading %d%%' % progres
             except Exception as e:
                 self.__logger.debug("Erreur update upload : %s" % e)
-                self.__navigation.set_upload_status('Uploading ...')
+                return 'Uploading ...'
         elif len(self.__upload_queue) > 0:
-            self.__navigation.set_upload_status('Uploading ...')
+            return 'Uploading ...'
         else:
-            self.__navigation.set_upload_status('Upload inactif')
+            return 'Upload inactif'
 
     def upload_repertoire(self, upload: UploadRepertoire, rep_parent: Optional[Repertoire] = None):
         if rep_parent is None:
