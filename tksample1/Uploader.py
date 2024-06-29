@@ -82,6 +82,7 @@ class UploadFichier:
         self.__parent = parent
         self.taille = path_fichier.stat().st_size
         self.__taille_uploade = 0
+        self.batch_token = None
 
     def add_chunk_uploade(self, taille: int):
         if self.__parent:
@@ -262,6 +263,34 @@ class Uploader:
         pass
 
     def upload_fichier(self, upload: UploadFichier):
+        retry_count = 0
+        interval_retry = datetime.timedelta(seconds=20)
+        while self.__stop_event.is_set() is False:
+            try:
+                if retry_count > 0:
+                    self.__logger.info("Upload fichier %s retry %d" % (upload.path, retry_count))
+                self.__upload_fichier_1pass(upload)
+                break
+            except:
+                self.__logger.exception("Erreur upload fichier - retry in %s" % interval_retry)
+                if upload.batch_token is not None:
+                    # Delete le contenu partiellement uploade
+                    batch_id = upload.batch_token['batchId']
+                    url_collections = self.__connexion.url_collections
+                    url_put = f'https://{url_collections.hostname}:444{url_collections.path}/fichiers/upload/{batch_id}'
+                    headers = {'x-token-jwt': upload.batch_token['token']}
+                    response = self.__https_session.delete(url_put, headers=headers)
+                    if response.status_code not in (200, 404):
+                        self.__logger.warning("Erreur suppression upload partiel, code : %d" % response.status_code)
+
+                    # Reset token
+                    upload.batch_token = None
+
+                # Attendre pour retry
+                self.__stop_event.wait(timeout=interval_retry.seconds)
+                retry_count += 1
+
+    def __upload_fichier_1pass(self, upload: UploadFichier):
         if self.__certificats_chiffrage is None:
             self.__certificats_chiffrage = self.__connexion.get_certificats_chiffrage()
 
@@ -269,6 +298,7 @@ class Uploader:
         requete, message_id = self.__connexion.formatteur.signer_message(
             Constantes.KIND_REQUETE, requete_token)
         batch_upload_token = self.__connexion.call('getBatchUpload', data=requete, timeout=5)
+        upload.batch_token = batch_upload_token
 
         # Preparer transaction
         stat_fichier = upload.path.stat()
@@ -299,7 +329,7 @@ class Uploader:
         with open(upload.path, 'rb') as fichier:
             while cipher.hachage is None:
                 position = fichier.tell()
-                stream = file_iterator(fichier, cipher, hacheur, SPLIT_SIZE, upload)
+                stream = file_iterator(self.__stop_event, fichier, cipher, hacheur, SPLIT_SIZE, upload)
                 url_put = f'https://{url_collections.hostname}:444{url_collections.path}/fichiers/upload/{batch_id}/{position}'
                 response = self.__https_session.put(url_put, headers=headers, data=stream)
                 response.raise_for_status()
@@ -359,7 +389,7 @@ class Uploader:
         reponse = self.__https_session.post(url_confirmation, headers=headers, json=confirmation_data, timeout=45)
         if reponse.status_code == 200:
             reponse_status = reponse.text
-            self.__logger.error('Erreur POST fichier %s : %s' % (data_dechiffre_transaction, reponse_status))
+            raise Exception('Erreur POST fichier %s : %s' % (data_dechiffre_transaction, reponse_status))
         else:
             reponse.raise_for_status()
 
@@ -411,12 +441,16 @@ class Uploader:
         return cuuid
 
 
-def file_iterator(fp, cipher, hacheur, maxsize, upload: UploadFichier):
-    CHUNK_SIZE = 64*1024
+UPLOAD_CHUNK_SIZE = 64*1024
+
+
+def file_iterator(stop_event: Event, fp, cipher, hacheur, maxsize, upload: UploadFichier):
     current_output_size = 0
-    maxsize = maxsize - CHUNK_SIZE
+    maxsize = maxsize - UPLOAD_CHUNK_SIZE
     while current_output_size < maxsize:
-        chunk = fp.read(CHUNK_SIZE)
+        if stop_event.is_set():
+            raise Exception("Stopping")
+        chunk = fp.read(UPLOAD_CHUNK_SIZE)
         if len(chunk) == 0:
             chunk = cipher.finalize()
             yield chunk
@@ -427,6 +461,7 @@ def file_iterator(fp, cipher, hacheur, maxsize, upload: UploadFichier):
         chunk = cipher.update(chunk)
         if len(chunk) > 0:
             current_output_size += len(chunk)
+            time.sleep(1)
             yield chunk
 
 
