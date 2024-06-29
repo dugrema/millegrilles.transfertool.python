@@ -392,7 +392,7 @@ def sync_collection(connexion, cuuid: Optional[str] = None):
         fichiers_recus = [f for f in contenu_sync['liste'] if f['supprime'] is False]
         tuuids_recus = [f['tuuid'] for f in fichiers_recus]
 
-        skip += len(tuuids_recus)
+        skip += len(contenu_sync['liste'])
         tuuids.extend(tuuids_recus)
 
         if contenu_sync['complete'] is True:
