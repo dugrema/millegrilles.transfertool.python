@@ -250,7 +250,14 @@ class Uploader:
             rep_map[item['nom']] = item
 
         path_src = pathlib.Path(upload.path)
+        liste_sous_items = list()
         for t in path_src.iterdir():
+            liste_sous_items.append(t)
+
+        # Trier contenu du repertoire : repertoires alphabetiques puis fichiers alphabetiques
+        liste_sous_items = sorted(liste_sous_items, key=path_key)
+
+        for t in liste_sous_items:
             nom_item = t.name
             if t.is_dir():
                 rep_item = UploadRepertoire(cuuid_courant, t, upload)
@@ -483,3 +490,13 @@ class UploaderFrame(tk.Frame):
         super().__init__(*args, **kwargs)
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__stop_event = stop_event
+
+
+def path_key(item: pathlib.Path):
+    if item.is_dir():
+        key_type = 1
+    elif item.is_file():
+        key_type = 2
+    else:
+        key_type = 3
+    return key_type, item.name
