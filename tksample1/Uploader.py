@@ -2,6 +2,7 @@ import datetime
 import logging
 import json
 import os.path
+import time
 
 import requests
 import tkinter as tk
@@ -11,6 +12,8 @@ import mimetypes
 from threading import Event, Thread
 from typing import Optional, Union
 from urllib import parse
+
+import socketio.exceptions
 from wakepy import keep
 
 from millegrilles_messages.messages import Constantes
@@ -144,7 +147,6 @@ class Uploader:
             for ext, mt in json_mt.items():
                 mimetypes.add_type(mt, "." + ext)
 
-
     def set_navigation(self, navigation):
         self.__navigation = navigation
 
@@ -165,37 +167,44 @@ class Uploader:
         return upload_item
 
     def upload_thread(self):
-        while self.__stop_event.is_set() is False:
-            # self.update_upload_status()
-            self.__event_upload_in_progress.clear()
-            if self.__navigation is not None:
-                self.__navigation.refresh()
-            self.__upload_pret.wait()
-            self.__upload_pret.clear()
+        try:
+            while self.__stop_event.is_set() is False:
+                # self.update_upload_status()
+                self.__event_upload_in_progress.clear()
+                if self.__navigation is not None:
+                    self.__navigation.refresh()
+                self.__upload_pret.wait()
+                self.__upload_pret.clear()
 
-            with keep.running():  # Empecher sleep mode
-                while True:
-                    # self.update_upload_status()
-                    try:
-                        self.__upload_en_cours = self.__upload_queue.pop(0)
-                        self.__event_upload_in_progress.set()
-                    except IndexError:
-                        break
-                    else:
-                        if self.__stop_event.is_set():
-                            return  # Stopping
+                with keep.running():  # Empecher sleep mode
+                    while True:
+                        # self.update_upload_status()
                         try:
-                            # self.update_upload_status()
-                            if isinstance(self.__upload_en_cours, UploadFichier):
-                                self.upload_fichier(self.__upload_en_cours)
-                            elif isinstance(self.__upload_en_cours, UploadRepertoire):
-                                self.upload_repertoire(self.__upload_en_cours)
-                            else:
-                                self.__logger.error("Type upload non supporte : %s" % self.__upload_en_cours)
-                        except Exception:
-                            self.__logger.exception("Erreur upload")
-                        finally:
-                            self.__upload_en_cours = None
+                            self.__upload_en_cours = self.__upload_queue.pop(0)
+                            self.__event_upload_in_progress.set()
+                        except IndexError:
+                            break
+                        else:
+                            if self.__stop_event.is_set():
+                                return  # Stopping
+                            try:
+                                # self.update_upload_status()
+                                if isinstance(self.__upload_en_cours, UploadFichier):
+                                    self.upload_fichier(self.__upload_en_cours)
+                                elif isinstance(self.__upload_en_cours, UploadRepertoire):
+                                    self.upload_repertoire(self.__upload_en_cours)
+                                else:
+                                    self.__logger.error("Type upload non supporte : %s" % self.__upload_en_cours)
+                            except Exception:
+                                self.__logger.exception("Erreur upload")
+                            finally:
+                                self.__upload_en_cours = None
+        except Exception:
+            self.__logger.exception("upload_thread interrompue par error")
+            self.__stop_event.set()  # Causer l'arret de l'application
+            self.__upload_queue.clear()
+        finally:
+            self.__upload_en_cours = None  # S'assurer que le label est mis a Inactif
 
     def upload_status(self):
         status = self.__upload_status()
@@ -227,7 +236,15 @@ class Uploader:
     def upload_repertoire(self, upload: UploadRepertoire, rep_parent: Optional[Repertoire] = None):
         if rep_parent is None:
             cuuid_parent = upload.cuuid_parent
-            rep_parent = sync_collection(self.__connexion, cuuid_parent)
+            while True:
+                if self.__stop_event.is_set() is True:
+                    return  # Stopping
+                try:
+                    rep_parent = sync_collection(self.__connexion, cuuid_parent)
+                    break
+                except socketio.exceptions.TimeoutError:
+                    self.__logger.exception("upload_repertoire Erreur sync collection (1), retry dans 20 secondes")
+                    time.sleep(20)
         else:
             cuuid_parent = rep_parent.cuuid
 
@@ -237,12 +254,29 @@ class Uploader:
         try:
             rep_existant = [f for f in rep_parent.fichiers if f['nom'] == nom_repertoire].pop()
             cuuid_courant = rep_existant['tuuid']
-            rep_courant = sync_collection(self.__connexion, cuuid_courant)
+            while True:
+                if self.__stop_event.is_set() is True:
+                    return  # Stopping
+                try:
+                    rep_courant = sync_collection(self.__connexion, cuuid_courant)
+                    break
+                except socketio.exceptions.TimeoutError:
+                    self.__logger.exception("upload_repertoire Erreur sync collection (2), retry dans 20 secondes")
+                    time.sleep(20)
+
         except IndexError:
             rep_existant = None
-            # Creer repertoire
-            cuuid_courant = self.creer_collection(nom_repertoire, cuuid_parent)
-            rep_courant = Repertoire(list(), cuuid_courant)
+            while True:
+                if self.__stop_event.is_set() is True:
+                    return  # Stopping
+                try:
+                    # Creer repertoire
+                    cuuid_courant = self.creer_collection(nom_repertoire, cuuid_parent)
+                    rep_courant = Repertoire(list(), cuuid_courant)
+                    break
+                except socketio.exceptions.TimeoutError:
+                    self.__logger.exception("upload_repertoire Erreur sync collection (1), retry dans 20 secondes")
+                    time.sleep(20)
 
         # Generer dict des fichiers/sous-repertoires
         rep_map = dict()
@@ -267,7 +301,16 @@ class Uploader:
                     self.upload_repertoire(rep_item, rep_courant)
                 except KeyError:
                     # Nouveau repertoire
-                    self.creer_collection(nom_item, cuuid_courant)
+                    while True:
+                        if self.__stop_event.is_set() is True:
+                            return  # Stopping
+                        try:
+                            self.creer_collection(nom_item, cuuid_courant)
+                            break
+                        except socketio.exceptions.TimeoutError:
+                            self.__logger.exception(
+                                "upload_repertoire Erreur creer collection (2), retry dans 20 secondes")
+                            time.sleep(20)
                     self.upload_repertoire(rep_item, None)  # Parent none force resync
             else:
                 # Fichier

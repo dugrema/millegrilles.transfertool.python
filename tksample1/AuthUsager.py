@@ -431,11 +431,12 @@ class Authentification:
         if self.__sio is not None:
             sio = self.__sio
         else:
+            # sio = socketio.Client(http_session=http_session, engineio_logger=True, logger=True)
             sio = socketio.Client(http_session=http_session)
 
-        path_app = f'{url.path}/socket.io'
+        path_app = f'{url.path}/socket.io/'
         self.__logger.debug("Connecter socket.io %s path %s" % (connexion_socketio, path_app))
-        sio.connect(connexion_socketio, socketio_path=path_app)
+        sio.connect(connexion_socketio, socketio_path=path_app, transports=['polling', 'websocket'])
 
         self.__sio = sio
 
