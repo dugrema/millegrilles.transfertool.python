@@ -1,2 +1,9 @@
 #!/bin/env bash
-zip -r mgtransfertool_BUILD.zip tksample1 bin requirements.txt
+BUILD=$1
+
+if [ -z "$BUILD" ]; then
+  echo "Fournir la version"
+  exit 1
+fi
+
+zip -r mgtransfertool_$BUILD.zip tksample1 bin requirements.txt
