@@ -6,4 +6,6 @@ if [ -z "$BUILD" ]; then
   exit 1
 fi
 
-zip -r mgtransfertool_$BUILD.zip tksample1 bin requirements.txt
+mkdir -p build/
+
+zip -r build/mgtransfertool_$BUILD.zip tksample1 bin requirements.txt
