@@ -398,7 +398,7 @@ def sync_collection(connexion: Authentification, cuuid: Optional[str] = None):
 
         keys = decrypted_content['keys']
         received_files = [f for f in decrypted_content['files'] if f['supprime'] is False]
-        decrypted_keys, decrypted_files = decrypt_files(connexion.clecert, keys, received_files)
+        decrypted_keys, decrypted_files = decrypt_files(keys, received_files)
         fichiers_complet.extend(decrypted_files)
 
         skip += len(decrypted_content['files'])
@@ -463,7 +463,7 @@ def sync_collection(connexion: Authentification, cuuid: Optional[str] = None):
 #
 #     return fichiers
 
-def decrypt_files(secret_key: CleCertificat, keys: list[dict], received_files: list[dict]):
+def decrypt_files(keys: list[dict], received_files: list[dict]):
     decrypted_keys = dict()
     decrypted_files = list()
 
@@ -472,11 +472,16 @@ def decrypt_files(secret_key: CleCertificat, keys: list[dict], received_files: l
 
     for file in received_files:
         encrypted_metadata = file['metadata']
-        decryption_key = decrypted_keys[encrypted_metadata['cle_id']]
+        try:
+            decryption_key = decrypted_keys[encrypted_metadata['cle_id']]
+        except KeyError:
+            LOGGER.info(f"Missing decryption key for {file['tuuid']}")
+            continue
         try:
             decrypted_metadata = dechiffrer_document_secrete(decryption_key, encrypted_metadata)
             file = file.copy()
             file['metadata'] = decrypted_metadata
+            file['secret_key'] = decryption_key
             decrypted_files.append(file)
         except nacl.exceptions.RuntimeError:
             LOGGER.warning(f"Error decrypting file tuuid {file["tuuid"]}")

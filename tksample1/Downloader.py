@@ -6,20 +6,24 @@ import requests
 from threading import Event, Thread
 from urllib import parse
 from typing import Optional, Union
+
+from requests import HTTPError
 from wakepy import keep
 
 from millegrilles_messages.chiffrage.Mgs4 import DecipherMgs4
+from tksample1.AuthUsager import Authentification
 from tksample1.Navigation import sync_collection
-
+from millegrilles_messages.messages import Constantes
 
 class DownloadFichier:
 
     def __init__(self, download_info, destination: pathlib.Path):
         self.__info = download_info
-        self.cle_secrete = download_info['cle_secrete']
+        self.cle_secrete = download_info['secret_key']
+        metadata = download_info['metadata']
         version_courante = download_info['version_courante']
         self.fuuid = version_courante['fuuid']
-        self.nom = download_info['nom']
+        self.nom = metadata['nom']
         self.taille_chiffree = version_courante['taille']
 
         self.nonce = version_courante.get('nonce') or download_info['info_cle']['nonce']
@@ -44,8 +48,9 @@ class DownloadRepertoire:
 
     def __init__(self, repertoire, destination: pathlib.Path):
         self.__info = repertoire
+        metadata = repertoire['metadata']
         self.cuuid = repertoire['tuuid']
-        self.nom = repertoire['nom']
+        self.nom = metadata['nom']
         self.download_complete = Event()
         self.repertoire = None
         self.destination = destination
@@ -64,7 +69,7 @@ class DownloadRepertoire:
 
 class Downloader:
 
-    def __init__(self, stop_event: Event, connexion):
+    def __init__(self, stop_event: Event, connexion: Authentification):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__stop_event = stop_event
         self.__connexion = connexion
@@ -232,10 +237,14 @@ class Downloader:
             raise Exception('Format de chiffrage non supporte')
 
         if self.__https_session is None:
-            self.__https_session = self.__connexion.get_https_session()
+            # self.__https_session = self.__connexion.get_https_session()
+            https_session = requests.Session()
+            https_session.verify = False
+            https_session.cert = None
+            self.__https_session = https_session
 
         url_collections = self.__connexion.url_collections
-        url_fichier = f'https://{url_collections.hostname}:444{url_collections.path}/fichiers/{item.fuuid}'
+        url_fichier = f'https://{url_collections.hostname}:443/filehost/files/{item.fuuid}'
 
         path_reception = pathlib.Path(item.path_destination, item.nom)
         if path_reception.exists():
@@ -247,7 +256,23 @@ class Downloader:
         try:
             with open(path_reception_work, 'xb') as output:
                 response = self.__https_session.get(url_fichier)
-                response.raise_for_status()
+                try:
+                    response.raise_for_status()
+                except HTTPError as e:
+                    if e.response.status_code == 401:
+                        auth_message, message_id = self.__connexion.formatteur.signer_message(
+                            Constantes.KIND_COMMANDE, {}, 'filehost', True, 'authenticate')
+                        auth_message["millegrille"] = self.__connexion.formatteur.enveloppe_ca.certificat_pem
+                        url_auth = f'https://{url_collections.hostname}:443/filehost/authenticate'
+                        auth_response = self.__https_session.post(url_auth, json=auth_message)
+                        auth_response.raise_for_status()
+                        #             let authMessage = await workers.connection.createRoutedMessage(
+                        #                 messageStruct.MessageKind.Command, {}, {domaine: 'filehost', action: 'authenticate'});
+                        #             authMessage.millegrille = caPem;
+
+                        pass
+                    else:
+                        raise e
 
                 for chunk in response.iter_content(chunk_size=64*1024):
                     output.write(chunk)
