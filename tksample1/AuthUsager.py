@@ -264,17 +264,19 @@ class Authentification:
         reponse_json = reponse.json()
         contenu = json.loads(reponse_json['contenu'])
 
-        instances = contenu['instances']
-        applcations_v2 = contenu['applicationsV2']
+        # url_app = parse.urlparse('https://bureau1.maple.maceroc.com:443/millegrilles')
+        # return [url_app]
 
-        collections = applcations_v2['collections']
+        instances = contenu['instances']
         instances_collection = list()
-        for instance_id, app_instance in collections['instances'].items():
-            app_path = app_instance['pathname']
-            instance = instances[instance_id]
-            port_https = instance['ports']['https']
+        for instance_id, instance in instances.items():
+            # app_path = app_instance['pathname']
+            # instance = instances[instance_id]
+            app_path = "/millegrilles"
+            # port_https = instance['ports']['https']
+            port_tls = instance['ports']['https'] + 1
             for domaine_instance in instance['domaines']:
-                url_app = parse.urlparse(f'https://{domaine_instance}:{port_https}{app_path}')
+                url_app = parse.urlparse(f'https://{domaine_instance}:{port_tls}{app_path}')
                 instances_collection.append(url_app)
 
                 if self.url_fiche_serveur.hostname == domaine_instance:
@@ -325,8 +327,12 @@ class Authentification:
                 self.auth_frame.set_etat(code_activation=code_activation_ecran)
 
                 commande_ajouter_csr = {'nomUsager': self.nom_usager, 'csr': csr_pem}
-                sio.emit('ecouterEvenementsActivationFingerprint', {'fingerprintPk': cle_publique}, callback=self.callback_activation)
-                sio.emit('ajouterCsrRecovery', commande_ajouter_csr, callback=self.callback_csr)
+                # sio.emit('ecouterEvenementsActivationFingerprint', {'fingerprintPk': cle_publique}, callback=self.callback_activation)
+                # sio.emit('ajouterCsrRecovery', commande_ajouter_csr, callback=self.callback_csr)
+
+                # New approach
+                sio.emit('authentication_subscribe_activation', {'publicKey': cle_publique}, callback=self.callback_activation)
+                sio.emit('authentication_addrecoverycsr', commande_ajouter_csr, callback=self.callback_csr)
 
                 event_certificat = Event()
 
@@ -391,9 +397,9 @@ class Authentification:
 
     def get_https_session(self):
         http_session = requests.Session()
-        http_session.verify = self.__path_ca
+        http_session.verify = str(self.__path_ca)
         # http_session.verify = False
-        http_session.cert = (self.__path_cert, self.__path_cle)
+        http_session.cert = (str(self.__path_cert), str(self.__path_cle))
         return http_session
 
     def authentifier_socketio(self, sio):
@@ -411,7 +417,8 @@ class Authentification:
         # Verifier reponse
         self.__logger.debug("Connecte, upgrade OK. Data:\n%s" % reponse_upgrade)
         enveloppe = asyncio.run(self.__validateur.verifier(reponse_upgrade))
-        if 'collections' not in enveloppe.get_roles or Constantes.SECURITE_PRIVE not in enveloppe.get_exchanges:
+        roles_server = {'protected_webapi', 'private_webapi'}
+        if len(roles_server.intersection(enveloppe.get_roles)) == 0 or Constantes.SECURITE_PRIVE not in enveloppe.get_exchanges:
             raise Exception(
                 "Erreur upgrade socket.io : mauvais role/securite cote serveur. Roles: %s, securite: %s" % (
                     enveloppe.get_roles, enveloppe.get_exchanges))
