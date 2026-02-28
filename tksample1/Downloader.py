@@ -244,7 +244,8 @@ class Downloader:
             self.__https_session = https_session
 
         url_collections = self.__connexion.url_collections
-        url_fichier = f'https://{url_collections.hostname}:443/filehost/files/{item.fuuid}'
+        # url_fichier = f'https://{url_collections.hostname}:443/filehost/files/{item.fuuid}'
+        url_fichier = f'{self.__connexion.filehost_url}/files/{item.fuuid}'
 
         path_reception = pathlib.Path(item.path_destination, item.nom)
         if path_reception.exists():

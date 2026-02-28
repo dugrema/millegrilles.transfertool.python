@@ -414,55 +414,6 @@ def sync_collection(connexion: Authentification, cuuid: Optional[str] = None):
 
     return rep
 
-# def recevoir_metadata_fichiers(connexion, tuuids):
-#     requete_documents = {'tuuids_documents': tuuids, 'partage': False, 'contact_id': None}
-#     requete_documents, message_id = connexion.formatteur.signer_message(
-#         Constantes.KIND_REQUETE, requete_documents, 'GrosFichiers', True, 'documentsParTuuid')
-#     reponse_documents = connexion.call('getDocuments', requete_documents, timeout=30)
-#     contenu_documents = json.loads(reponse_documents['contenu'])
-#     fichiers = contenu_documents['fichiers']
-#     cle_ids = set()
-#     for fichier in fichiers:
-#         try:
-#             metadata_chiffre = fichier['metadata']
-#             cle_id = metadata_chiffre.get('cle_id') or metadata_chiffre.get('ref_hachage_bytes') or metadata_chiffre[
-#                 'hachage_bytes']
-#             cle_ids.add(cle_id)
-#         except KeyError:
-#             cle_id = fichier['version_courante']['fuuid']
-#             cle_ids.add(cle_id)
-#     cle_ids = list(cle_ids)
-#     # Charger les cles de dechiffrage
-#     requete_cles = {'fuuids': cle_ids, 'partage': False, 'version': 2}
-#     requete_cles, message_id = connexion.formatteur.signer_message(
-#         Constantes.KIND_REQUETE, requete_cles, 'GrosFichiers', True, 'getClesFichiers')
-#     reponse_cles = connexion.call('getPermissionCles', requete_cles, timeout=30)
-#     cles_dechiffrees = dechiffrer_reponse(connexion.clecert, reponse_cles)
-#     cles = dict()
-#     for cle in cles_dechiffrees['cles']:
-#         cle['cle_secrete'] = multibase.decode('m' + cle['cle_secrete_base64'])
-#         cles[cle['cle_id']] = cle
-#     # Dechiffrer metadata des fichiers et repertoires
-#     for fichier in fichiers:
-#         metadata_chiffre = fichier['metadata']
-#         try:
-#             cle_id = metadata_chiffre.get('cle_id') or metadata_chiffre.get('ref_hachage_bytes') or metadata_chiffre[
-#                 'hachage_bytes']
-#         except KeyError:
-#             cle_id = fichier['version_courante']['fuuid']
-#         try:
-#             info_cle = cles[cle_id]
-#             cle_secrete = info_cle['cle_secrete']
-#         except KeyError:
-#             LOGGER.warning('Cle manquante pour %s, SKIP', fichier)
-#         else:
-#             fichier['info_cle'] = info_cle
-#             fichier['cle_secrete'] = cle_secrete
-#             info_dechiffree = dechiffrer_document_secrete(cle_secrete, metadata_chiffre)
-#             fichier.update(info_dechiffree)
-#
-#     return fichiers
-
 def decrypt_files(keys: list[dict], received_files: list[dict]):
     decrypted_keys = dict()
     decrypted_files = list()

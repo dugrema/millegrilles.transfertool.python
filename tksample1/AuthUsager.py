@@ -68,6 +68,9 @@ class Authentification:
         self.__lock_emit = Lock()
         self.connect_event = Event()
 
+        self.__filehosts: Optional[list[dict]] = None
+        self.__filehost_idx = 0
+
     @property
     def formatteur(self):
         return self.__formatteur
@@ -91,6 +94,10 @@ class Authentification:
     @property
     def download_path(self):
         return self.__path_download
+
+    @property
+    def filehost_url(self):
+        return f"{self.__filehosts[self.__filehost_idx]['url_external']}/filehost"
 
     def emit(self, *args, **kwargs):
         with self.__lock_emit:
@@ -311,6 +318,14 @@ class Authentification:
                         break
                     except Exception:
                         self.__logger.exception("Erreur reconnexion")
+
+        filehost_response = self.request({}, "CoreTopologie", "getFilehosts")
+        filehost_content = json.loads(filehost_response['contenu'])
+        if filehost_content['ok'] is not True:
+            raise Exception(f'Error calling requete.CoreTopologie.getFilehosts: {filehost_content.get("err")}')
+        filehosts = [f for f in filehost_content['list'] if f.get('url_external') is not None and f['deleted'] is False]
+        self.__filehosts = filehosts
+        self.__logger.info(f"Filehost url: {self.filehost_url}")
 
     def socketio_requete_certificat(self, url: parse.ParseResult):
         connexion_socketio = f'https://{url.hostname}'
