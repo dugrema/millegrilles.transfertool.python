@@ -408,11 +408,22 @@ class Authentification:
         self.__logger.debug("Reponse generer : %s" % reponse_generer)
 
         # Effectuer authentification via socket.io
-        requete_upgrade = reponse_generer['challengeCertificat']
-        requete_upgrade, message_id = self.__formatteur.signer_message(
-            Constantes.KIND_COMMANDE, requete_upgrade, 'login', True, 'login')
-        self.__logger.debug("Upgrade auth socket.io")
-        reponse_upgrade = sio.call('upgrade', requete_upgrade)
+        # requete_upgrade = reponse_generer['challengeCertificat']
+        # requete_upgrade, message_id = self.__formatteur.signer_message(
+        #     Constantes.KIND_COMMANDE, requete_upgrade, 'login', True, 'login')
+        # self.__logger.debug("Upgrade auth socket.io")
+        # reponse_upgrade = sio.call('upgrade', requete_upgrade)
+        # let authenticationResponse = await this.sendCommand(
+        #     data, 'authentication', 'authenticate',
+        #     {attachments: { apiMapping }, eventName: 'authentication_authenticate', role: 'private_webapi'}
+        # );
+
+        requete_auth = reponse_generer['challengeCertificat']
+        requete_upgrade, message_id = self.__formatteur.signer_message(Constantes.KIND_COMMANDE, requete_auth, 'authenticate', True, 'login')
+        requete_upgrade['attachments'] = load_signed_api()
+
+        self.__logger.debug("Authenticate with socket.io")
+        reponse_upgrade = sio.call('authentication_authenticate', requete_upgrade)
 
         # Verifier reponse
         self.__logger.debug("Connecte, upgrade OK. Data:\n%s" % reponse_upgrade)
@@ -578,3 +589,9 @@ class AuthFrame(tk.Frame):
         self.set_etat(connecte=False)
         self.__logger.info("Usager deconnecte, configuration supprimee")
 
+def load_signed_api():
+    import tksample1
+    path_module = pathlib.Path(os.path.abspath(tksample1.__file__))
+    path_json = pathlib.Path(path_module.parent, 'apiMapping.signed.json')
+    with open(path_json) as fichier:
+        return json.load(fichier)

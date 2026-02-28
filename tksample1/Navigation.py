@@ -384,9 +384,9 @@ def sync_collection(connexion, cuuid: Optional[str] = None):
         }
 
         requete_favoris, message_id = connexion.formatteur.signer_message(
-            Constantes.KIND_REQUETE, requete, 'GrosFichiers', True, 'syncCollection')
+            Constantes.KIND_REQUETE, requete, 'GrosFichiers', True, 'syncDirectory')
 
-        reponse_sync = connexion.call('syncCollection', requete_favoris, timeout=5)
+        reponse_sync = connexion.call('syncDirectory', requete_favoris, timeout=30)
         contenu_sync = json.loads(reponse_sync['contenu'])
 
         fichiers_recus = [f for f in contenu_sync['liste'] if f['supprime'] is False]
