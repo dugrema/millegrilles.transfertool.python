@@ -96,7 +96,7 @@ class Navigation:
                 # Changer breadcrumb, ajouter repertoire selectionne
                 repertoire = [c for c in self.__repertoire.fichiers if c['tuuid'] == cuuid].pop()
                 self.breadcrumb.append(repertoire)
-                breadcrumb_path = [p['nom'] for p in self.breadcrumb]
+                breadcrumb_path = [p['metadata']['nom'] for p in self.breadcrumb]
                 breadcrumb_path = pathlib.Path('favoris', *breadcrumb_path)
                 self.nav_frame.set_breadcrumb(breadcrumb_path)
 
@@ -109,7 +109,7 @@ class Navigation:
         if len(self.breadcrumb) == 0:
             return
         self.breadcrumb = self.breadcrumb[:-1]
-        breadcrumb_path = [p['nom'] for p in self.breadcrumb]
+        breadcrumb_path = [p['metadata']['nom'] for p in self.breadcrumb]
         self.nav_frame.set_breadcrumb(pathlib.Path('favoris', *breadcrumb_path))
 
         # Naviguer vers
@@ -332,17 +332,19 @@ class NavigationFrame(tk.Frame):
             #     self.dirlist.delete(c)
 
         def sort_nom(item):
+            metadata = item['metadata']
             if item['type_node'] == 'Fichier':
                 tn = '2'
             else:
                 tn = '1'
-            return tn + (item.get('nom') or item['tuuid'])
+            return tn + (metadata.get('nom') or item['tuuid'])
 
         fichiers_tries = sorted(self.__repertoire.fichiers, key=sort_nom)
 
         rows = []
         for fichier in fichiers_tries:
-            nom_fichier = fichier.get('nom') or fichier['tuuid']
+            metadata = fichier['metadata']
+            nom_fichier = metadata.get('nom') or fichier['tuuid']
             taille_fichier = ''
             type_node = fichier['type_node']
             tuuid = fichier['tuuid']
@@ -353,7 +355,7 @@ class NavigationFrame(tk.Frame):
                 version_courante = fichier['version_courante']
                 taille_fichier = version_courante['taille']
                 type_fichier = 'Fichier'
-                date_fichier = datetime.datetime.fromtimestamp(fichier['dateFichier'], tz=pytz.UTC)
+                date_fichier = datetime.datetime.fromtimestamp(metadata['dateFichier'], tz=pytz.UTC)
             self.dirlist.insert('', 'end', iid=tuuid, text=nom_fichier, values=(taille_fichier, type_fichier, date_fichier))
 
     def dirlist_rightclick_fichier(self, event):
@@ -408,67 +410,58 @@ def sync_collection(connexion: Authentification, cuuid: Optional[str] = None):
         # Aucun fichier a charger (repertoire vide)
         return Repertoire(list(), cuuid)
 
-    # Charger les documents
-    # fichiers_complet = list()
-    # while len(tuuids) > 0:
-    #     batch_tuuids = tuuids[0:50]
-    #     tuuids = tuuids[50:]
-    #     fichiers = recevoir_metadata_fichiers(connexion, batch_tuuids)
-    #     fichiers_complet.extend(fichiers)
-
     rep = Repertoire(fichiers_complet, cuuid)
 
     return rep
 
-
-def recevoir_metadata_fichiers(connexion, tuuids):
-    requete_documents = {'tuuids_documents': tuuids, 'partage': False, 'contact_id': None}
-    requete_documents, message_id = connexion.formatteur.signer_message(
-        Constantes.KIND_REQUETE, requete_documents, 'GrosFichiers', True, 'documentsParTuuid')
-    reponse_documents = connexion.call('getDocuments', requete_documents, timeout=30)
-    contenu_documents = json.loads(reponse_documents['contenu'])
-    fichiers = contenu_documents['fichiers']
-    cle_ids = set()
-    for fichier in fichiers:
-        try:
-            metadata_chiffre = fichier['metadata']
-            cle_id = metadata_chiffre.get('cle_id') or metadata_chiffre.get('ref_hachage_bytes') or metadata_chiffre[
-                'hachage_bytes']
-            cle_ids.add(cle_id)
-        except KeyError:
-            cle_id = fichier['version_courante']['fuuid']
-            cle_ids.add(cle_id)
-    cle_ids = list(cle_ids)
-    # Charger les cles de dechiffrage
-    requete_cles = {'fuuids': cle_ids, 'partage': False, 'version': 2}
-    requete_cles, message_id = connexion.formatteur.signer_message(
-        Constantes.KIND_REQUETE, requete_cles, 'GrosFichiers', True, 'getClesFichiers')
-    reponse_cles = connexion.call('getPermissionCles', requete_cles, timeout=30)
-    cles_dechiffrees = dechiffrer_reponse(connexion.clecert, reponse_cles)
-    cles = dict()
-    for cle in cles_dechiffrees['cles']:
-        cle['cle_secrete'] = multibase.decode('m' + cle['cle_secrete_base64'])
-        cles[cle['cle_id']] = cle
-    # Dechiffrer metadata des fichiers et repertoires
-    for fichier in fichiers:
-        metadata_chiffre = fichier['metadata']
-        try:
-            cle_id = metadata_chiffre.get('cle_id') or metadata_chiffre.get('ref_hachage_bytes') or metadata_chiffre[
-                'hachage_bytes']
-        except KeyError:
-            cle_id = fichier['version_courante']['fuuid']
-        try:
-            info_cle = cles[cle_id]
-            cle_secrete = info_cle['cle_secrete']
-        except KeyError:
-            LOGGER.warning('Cle manquante pour %s, SKIP', fichier)
-        else:
-            fichier['info_cle'] = info_cle
-            fichier['cle_secrete'] = cle_secrete
-            info_dechiffree = dechiffrer_document_secrete(cle_secrete, metadata_chiffre)
-            fichier.update(info_dechiffree)
-
-    return fichiers
+# def recevoir_metadata_fichiers(connexion, tuuids):
+#     requete_documents = {'tuuids_documents': tuuids, 'partage': False, 'contact_id': None}
+#     requete_documents, message_id = connexion.formatteur.signer_message(
+#         Constantes.KIND_REQUETE, requete_documents, 'GrosFichiers', True, 'documentsParTuuid')
+#     reponse_documents = connexion.call('getDocuments', requete_documents, timeout=30)
+#     contenu_documents = json.loads(reponse_documents['contenu'])
+#     fichiers = contenu_documents['fichiers']
+#     cle_ids = set()
+#     for fichier in fichiers:
+#         try:
+#             metadata_chiffre = fichier['metadata']
+#             cle_id = metadata_chiffre.get('cle_id') or metadata_chiffre.get('ref_hachage_bytes') or metadata_chiffre[
+#                 'hachage_bytes']
+#             cle_ids.add(cle_id)
+#         except KeyError:
+#             cle_id = fichier['version_courante']['fuuid']
+#             cle_ids.add(cle_id)
+#     cle_ids = list(cle_ids)
+#     # Charger les cles de dechiffrage
+#     requete_cles = {'fuuids': cle_ids, 'partage': False, 'version': 2}
+#     requete_cles, message_id = connexion.formatteur.signer_message(
+#         Constantes.KIND_REQUETE, requete_cles, 'GrosFichiers', True, 'getClesFichiers')
+#     reponse_cles = connexion.call('getPermissionCles', requete_cles, timeout=30)
+#     cles_dechiffrees = dechiffrer_reponse(connexion.clecert, reponse_cles)
+#     cles = dict()
+#     for cle in cles_dechiffrees['cles']:
+#         cle['cle_secrete'] = multibase.decode('m' + cle['cle_secrete_base64'])
+#         cles[cle['cle_id']] = cle
+#     # Dechiffrer metadata des fichiers et repertoires
+#     for fichier in fichiers:
+#         metadata_chiffre = fichier['metadata']
+#         try:
+#             cle_id = metadata_chiffre.get('cle_id') or metadata_chiffre.get('ref_hachage_bytes') or metadata_chiffre[
+#                 'hachage_bytes']
+#         except KeyError:
+#             cle_id = fichier['version_courante']['fuuid']
+#         try:
+#             info_cle = cles[cle_id]
+#             cle_secrete = info_cle['cle_secrete']
+#         except KeyError:
+#             LOGGER.warning('Cle manquante pour %s, SKIP', fichier)
+#         else:
+#             fichier['info_cle'] = info_cle
+#             fichier['cle_secrete'] = cle_secrete
+#             info_dechiffree = dechiffrer_document_secrete(cle_secrete, metadata_chiffre)
+#             fichier.update(info_dechiffree)
+#
+#     return fichiers
 
 def decrypt_files(secret_key: CleCertificat, keys: list[dict], received_files: list[dict]):
     decrypted_keys = dict()
