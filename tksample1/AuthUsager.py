@@ -63,6 +63,7 @@ class Authentification:
         self.__ca: Optional[EnveloppeCertificat] = None
 
         self.auth_frame = None
+        self.__authenticated = False
 
         self.__lock_emit = Lock()
         self.connect_event = Event()
@@ -290,6 +291,7 @@ class Authentification:
         if self._cle_certificat is None:
             self.socketio_requete_certificat(url)
 
+        self.__authenticated = False
         self.connecter_socketio()
 
         @self.__sio.on('disconnect')
@@ -415,12 +417,12 @@ class Authentification:
         # reponse_upgrade = sio.call('upgrade', requete_upgrade)
         # let authenticationResponse = await this.sendCommand(
         #     data, 'authentication', 'authenticate',
-        #     {attachments: { apiMapping }, eventName: 'authentication_authenticate', role: 'private_webapi'}
+        #     {attachements: { apiMapping }, eventName: 'authentication_authenticate', role: 'private_webapi'}
         # );
 
         requete_auth = reponse_generer['challengeCertificat']
-        requete_upgrade, message_id = self.__formatteur.signer_message(Constantes.KIND_COMMANDE, requete_auth, 'authenticate', True, 'login')
-        requete_upgrade['attachments'] = load_signed_api()
+        requete_upgrade, message_id = self.__formatteur.signer_message(Constantes.KIND_COMMANDE, requete_auth, 'authentication', True, 'authenticate')
+        requete_upgrade['attachements'] = {'apiMapping': load_signed_api()}
 
         self.__logger.debug("Authenticate with socket.io")
         reponse_upgrade = sio.call('authentication_authenticate', requete_upgrade)
@@ -438,6 +440,8 @@ class Authentification:
         if contenu.get('ok') is not True:
             self.__logger.error("Erreur upgrade socket.io : %s" % reponse_upgrade.get('err'))
             raise Exception('Erreur auth connexion socket.io')
+
+        self.__authenticated = True
 
     def connecter_socketio(self):
         # Reconnecter socketio par https avec client ssl
@@ -472,7 +476,7 @@ class Authentification:
         enveloppe = clecert.enveloppe
         idmg = enveloppe.idmg
 
-        ca = EnveloppeCertificat.from_file(self.__path_ca)
+        ca = EnveloppeCertificat.from_file(str(self.__path_ca))
         self.__ca = ca
 
         signateur = SignateurTransactionSimple(clecert)
@@ -496,32 +500,20 @@ class Authentification:
         # self.__formatteur.signer_message(
         #     Constantes.KIND_REQUETE, requete, 'MaitreDesCles', action='', ajouter_chaine_certs=True)
 
-    # def authentifier_session_web(self):
-    #     # Dans maitre des comptes, authentifier.js (69)
-    #     url_collection = self.__url_collection
-    #
-    #     fingerprint_pk = self._cle_certificat.fingerprint
-    #     data_get_usager = {
-    #         'nomUsager': self.nom_usager,
-    #         'hostname': url_collection.hostname,
-    #         'fingerprintPkCourant': fingerprint_pk,
-    #         'genererChallenge': True,
-    #     }
-    #     url_get_usager = f'https://{url_collection.hostname}:{url_collection.port}/auth/get_usager'
-    #     reponse_get_usager = requests.post(url_get_usager, json=data_get_usager)
-    #     reponse_json = reponse_get_usager.json()
-    #     challenges = json.loads(reponse_json['contenu'])
-    #
-    #     url_auth = f'https://{url_collection.hostname}:{url_collection.port}/auth/authentifier_usager'
-    #     data_authentification = {
-    #         # certificate_challenge: challengeCertificat, activation: true, dureeSession
-    #         'certificate_challenge': challenges['challenge_certificat'],
-    #         'activation': True,
-    #         'dureeSession': 86_400 * 31,
-    #         # 'nomUsager': self.nom_usager,
-    #     }
-    #     reponse = requests.post(url_auth, json=data_authentification)
+    def __call_with_message(self, content: dict, timeout):
+        if not self.__authenticated:
+            raise NotAuthenticatedError()
+        return self.call('route_message', content, timeout=timeout)
 
+    def request(self, body: dict, domain: str, action: str, timeout: int = 15):
+        content, message_id = self.formatteur.signer_message(
+            Constantes.KIND_REQUETE, body, domain, True, action)
+        return self.__call_with_message(content, timeout)
+
+    def command(self, body: dict, domain: str, action: str, timeout: int = 15):
+        content, message_id = self.formatteur.signer_message(
+            Constantes.KIND_COMMANDE, body, domain, True, action)
+        return self.__call_with_message(content, timeout)
 
 def generer_csr(nom_usager: str) -> CleCsrGenere:
     return CleCsrGenere.build(nom_usager)
@@ -595,3 +587,7 @@ def load_signed_api():
     path_json = pathlib.Path(path_module.parent, 'apiMapping.signed.json')
     with open(path_json) as fichier:
         return json.load(fichier)
+
+
+class NotAuthenticatedError(Exception):
+    pass

@@ -1,21 +1,26 @@
 import logging
 import tkinter as tk
 import tkinter.filedialog
+from json import JSONDecoder, JSONDecodeError
 from tkinter import ttk
 import json
 import multibase
 import datetime
 import pathlib
+
+import nacl.exceptions
 import pytz
 
-from typing import Optional
+from typing import Optional, Union
 from threading import Event, Thread
 
 from millegrilles_messages.messages import Constantes
+from millegrilles_messages.messages.CleCertificat import CleCertificat
 
 from tksample1.AuthUsager import Authentification
 
-from millegrilles_messages.chiffrage.DechiffrageUtils import dechiffrer_reponse, dechiffrer_document_secrete
+from millegrilles_messages.chiffrage.DechiffrageUtils import dechiffrer_reponse, dechiffrer_document_secrete, \
+    get_decipher_cle_secrete
 
 LOGGER = logging.getLogger(__name__)
 
@@ -370,45 +375,46 @@ class NavigationFrame(tk.Frame):
         self.upload_status_var.set(status)
 
 
-def sync_collection(connexion, cuuid: Optional[str] = None):
-
-    limit = 100
+def sync_collection(connexion: Authentification, cuuid: Optional[str] = None):
     skip = 0
-
-    tuuids = list()
+    fichiers_complet = list()
     while True:
         requete = {
-            'limit': limit,
             'skip': skip,
             'cuuid': cuuid,
+            'syncDate': None,
         }
 
-        requete_favoris, message_id = connexion.formatteur.signer_message(
-            Constantes.KIND_REQUETE, requete, 'GrosFichiers', True, 'syncDirectory')
+        reponse_sync = connexion.request(requete, 'GrosFichiers', 'syncDirectory')
+        try:
+            contenu_sync = json.loads(reponse_sync['contenu'])
+            if contenu_sync['ok'] is not True:
+                raise Exception(f'Error calling requete.GrosFichiers.syncDirectory: {contenu_sync.get("err")}')
+        except JSONDecodeError:
+            # Likely encrypted response (good)
+            decrypted_content = dechiffrer_reponse(connexion.clecert, reponse_sync)
 
-        reponse_sync = connexion.call('syncDirectory', requete_favoris, timeout=30)
-        contenu_sync = json.loads(reponse_sync['contenu'])
+        keys = decrypted_content['keys']
+        received_files = [f for f in decrypted_content['files'] if f['supprime'] is False]
+        decrypted_keys, decrypted_files = decrypt_files(connexion.clecert, keys, received_files)
+        fichiers_complet.extend(decrypted_files)
 
-        fichiers_recus = [f for f in contenu_sync['liste'] if f['supprime'] is False]
-        tuuids_recus = [f['tuuid'] for f in fichiers_recus]
+        skip += len(decrypted_content['files'])
 
-        skip += len(contenu_sync['liste'])
-        tuuids.extend(tuuids_recus)
-
-        if contenu_sync['complete'] is True:
+        if decrypted_content['complete'] is True:
             break
 
-    if len(tuuids) == 0:
+    if len(fichiers_complet) == 0:
         # Aucun fichier a charger (repertoire vide)
         return Repertoire(list(), cuuid)
 
     # Charger les documents
-    fichiers_complet = list()
-    while len(tuuids) > 0:
-        batch_tuuids = tuuids[0:50]
-        tuuids = tuuids[50:]
-        fichiers = recevoir_metadata_fichiers(connexion, batch_tuuids)
-        fichiers_complet.extend(fichiers)
+    # fichiers_complet = list()
+    # while len(tuuids) > 0:
+    #     batch_tuuids = tuuids[0:50]
+    #     tuuids = tuuids[50:]
+    #     fichiers = recevoir_metadata_fichiers(connexion, batch_tuuids)
+    #     fichiers_complet.extend(fichiers)
 
     rep = Repertoire(fichiers_complet, cuuid)
 
@@ -463,3 +469,23 @@ def recevoir_metadata_fichiers(connexion, tuuids):
             fichier.update(info_dechiffree)
 
     return fichiers
+
+def decrypt_files(secret_key: CleCertificat, keys: list[dict], received_files: list[dict]):
+    decrypted_keys = dict()
+    decrypted_files = list()
+
+    for key in keys:
+        decrypted_keys[key['cle_id']] = multibase.decode(f"m{key['cle_secrete_base64']}")
+
+    for file in received_files:
+        encrypted_metadata = file['metadata']
+        decryption_key = decrypted_keys[encrypted_metadata['cle_id']]
+        try:
+            decrypted_metadata = dechiffrer_document_secrete(decryption_key, encrypted_metadata)
+            file = file.copy()
+            file['metadata'] = decrypted_metadata
+            decrypted_files.append(file)
+        except nacl.exceptions.RuntimeError:
+            LOGGER.warning(f"Error decrypting file tuuid {file["tuuid"]}")
+
+    return decrypted_keys.values(), decrypted_files
