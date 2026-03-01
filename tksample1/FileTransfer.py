@@ -142,6 +142,19 @@ class TransferFrame(tk.Frame):
         self.__download_status_label.grid(row=0, column=0)
         self.__treeview_download = self.__add_treeview(self.__frame_download)
 
+        # Configure grid weights for TransferFrame
+        self.grid_rowconfigure(0, weight=1)  # Upload frame - expand
+        self.grid_rowconfigure(1, weight=1)  # Download frame - expand
+        self.grid_columnconfigure(0, weight=1)
+
+        # Configure upload frame weights
+        self.__frame_upload.grid_rowconfigure(1, weight=1)  # Treeview expands
+        self.__frame_upload.grid_columnconfigure(0, weight=1)
+
+        # Configure download frame weights
+        self.__frame_download.grid_rowconfigure(1, weight=1)  # Treeview expands
+        self.__frame_download.grid_columnconfigure(0, weight=1)
+
         self.add_widgets()
 
     def __add_treeview(self, master):
@@ -151,19 +164,30 @@ class TransferFrame(tk.Frame):
         treeview.heading("taille", text="Taille")
         treeview.heading("etat", text="Etat")
 
-        treeview.column("#0", width=600)
+        # Use dynamic widths for responsive layout
+        treeview.column("#0", width=400, minwidth=200)  # Changed from fixed 600
         treeview.column("taille", width=100, anchor="se")
         treeview.column("etat", width=75)
 
-        treeview.grid(row=1, column=0)
-
-        # Calling pack method w.r.to vertical
+        treeview.grid(row=1, column=0, sticky="nsew")
 
         return treeview
 
     def add_widgets(self):
-        self.__frame_upload.grid(row=0, column=0)
-        self.__frame_download.grid(row=1, column=0)
+        self.__frame_upload.grid(
+            row=0,
+            column=0,
+            sticky="nsew",
+            padx=5,
+            pady=5,
+        )
+        self.__frame_download.grid(
+            row=1,
+            column=0,
+            sticky="nsew",
+            padx=5,
+            pady=5,
+        )
 
     def grid(self, *args, **kwargs):
         super().grid(*args, **kwargs)

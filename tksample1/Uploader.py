@@ -292,7 +292,7 @@ class Uploader:
 
         try:
             rep_existant = [
-                f for f in rep_parent.fichiers if f["nom"] == nom_repertoire
+                f for f in rep_parent.fichiers if f["metadata"]["nom"] == nom_repertoire
             ].pop()
             cuuid_courant = rep_existant["tuuid"]
             while True:
@@ -326,7 +326,7 @@ class Uploader:
         # Generer dict des fichiers/sous-repertoires
         rep_map = dict()
         for item in rep_courant.fichiers:
-            rep_map[item["nom"]] = item
+            rep_map[item["metadata"]["nom"]] = item
 
         path_src = pathlib.Path(upload.path)
         liste_sous_items = list()

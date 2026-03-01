@@ -83,6 +83,15 @@ class Window(tk.Tk):
         self.title("Transfer Tool - MilleGrilles")
 
         self.geometry("800x600")
+        self.minsize(600, 400)  # Minimum window size
+
+        # Bind configure event for resize
+        self.bind("<Configure>", self.on_resize)
+
+        # Configure grid weights for main window
+        self.grid_rowconfigure(0, weight=0)  # Auth frame - no expand
+        self.grid_rowconfigure(1, weight=1)  # Notebook - expand vertically
+        self.grid_columnconfigure(0, weight=1)  # Expand horizontally
 
         self.auth: Authentification = auth
         self.auth_frame: Optional[AuthFrame] = None  # type: ignore
@@ -91,9 +100,15 @@ class Window(tk.Tk):
 
         self.__frame_auth = AuthFrame(auth)
         # self.__frame_auth.pack()
-        self.__frame_auth.grid(row=0, column=0)
+        self.__frame_auth.grid(row=0, column=0, sticky="nsew")
 
-        self.__frame_notebook.grid(row=1, column=0)
+        self.__frame_notebook.grid(
+            row=1,
+            column=0,
+            sticky="nsew",  # Expand in all directions
+            padx=5,
+            pady=5,
+        )
 
         self.__frame_navigation = NavigationFrame(
             navigation, master=self.__frame_notebook
@@ -110,6 +125,14 @@ class Window(tk.Tk):
         self.auth.auth_frame = self.__frame_auth  # type: ignore
         navigation.nav_frame = self.__frame_navigation  # type: ignore
         transfer_handler.transfer_frame = self.__frame_transfert  # type: ignore
+
+    def on_resize(self, event):
+        """Handle window resize events."""
+        # Optional: Adjust notebook padding based on size
+        if event.width < 700 or event.height < 500:
+            self.__frame_notebook.grid(padx=2, pady=2)
+        else:
+            self.__frame_notebook.grid(padx=5, pady=5)
 
 
 def parse_arguments():

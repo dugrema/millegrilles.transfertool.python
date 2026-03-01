@@ -46,6 +46,7 @@ class Navigation:
 
         self.__cuuid_a_charger = None
         self.__repertoire = None
+        self.__current_cuuid = None
 
         self.__thread = Thread(name="Navigation", target=self.run, daemon=False)
         self.__thread.start()
@@ -84,7 +85,13 @@ class Navigation:
 
     def ajouter_download(self, tuuid):
         """Wrapper to add a download"""
-        self.transfer_handler.ajouter_download_fichier(tuuid)
+        tuuid_node = [
+            f for f in self.__repertoire.fichiers if f["tuuid"] == tuuid
+        ].pop()
+        if tuuid_node["type_node"] == "Fichier":
+            self.transfer_handler.ajouter_download_fichier(tuuid_node)
+        else:
+            self.transfer_handler.ajouter_download_repertoire(tuuid_node)
 
     def upload_fichier(self, fichier):
         """Wrapper to upload a file"""
@@ -108,6 +115,16 @@ class Navigation:
             cuuid_parent = self.breadcrumb[-1].get("tuuid")
         return self.transfer_handler.creer_collection(nom, cuuid_parent)
 
+    def refresh(self):
+        """Refresh the current view by reloading the current directory"""
+        # Store current cuuid and trigger reload
+        if len(self.breadcrumb) > 0:
+            self.__current_cuuid = self.breadcrumb[-1].get("tuuid")
+        else:
+            self.__current_cuuid = None
+        self.__cuuid_a_charger = self.__current_cuuid
+        self.__event_dirty.set()
+
     def __set_erreur(self, erreur: Optional[Exception]):
         self.__en_erreur = erreur
         if erreur is not None:
@@ -129,8 +146,9 @@ class Navigation:
             self.__event_dirty.clear()
 
             try:
-                # Charger le repertoire
-                self.__charger_cuuid()
+                # Charger le repertoire with the stored cuuid
+                cuuid_to_load = self.__cuuid_a_charger
+                self.__charger_cuuid(cuuid_to_load)
             except Exception as e:
                 self.__logger.exception("Erreur navigation")
                 self.__set_erreur(e)
@@ -257,12 +275,24 @@ class NavigationFrame(tk.Frame):
         self.dirlist.heading("type", text="Type")
         self.dirlist.heading("date", text="Date")
 
-        self.dirlist.column("#0", width=440)
+        # Use dynamic widths for responsive layout
+        self.dirlist.column("#0", width=400, minwidth=200)  # Changed from fixed 440
         self.dirlist.column("taille", width=90, anchor="se")
         self.dirlist.column("type", width=100)
         self.dirlist.column("date", width=145)
 
-        self.dirlist.pack(side=tk.LEFT, fill=tk.BOTH)
+        # Configure grid weights for NavigationFrame
+        self.grid_rowconfigure(0, weight=0)  # Actions - fixed height
+        self.grid_rowconfigure(1, weight=0)  # Breadcrumb - fixed height
+        self.grid_rowconfigure(2, weight=0)  # Transfer status - fixed height
+        self.grid_rowconfigure(3, weight=1)  # Directory frame - expand
+        self.grid_columnconfigure(0, weight=1)  # Expand horizontally
+
+        # Configure dir_frame weights
+        self.__dir_frame.grid_rowconfigure(0, weight=1)
+        self.__dir_frame.grid_columnconfigure(0, weight=1)
+
+        self.dirlist.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         # Calling pack method w.r.to vertical
         # scrollbar
@@ -280,7 +310,7 @@ class NavigationFrame(tk.Frame):
         self.__frame_actions.grid(row=0, column=0)
         self.__frame_breadcrumb.grid(row=1, column=0)
         self.__frame_transfer_status.grid(row=2, column=0)
-        self.__dir_frame.grid(row=3, column=0)
+        self.__dir_frame.grid(row=3, column=0, sticky="nsew", padx=5, pady=5)
 
         super().grid(*args, **kwargs)
 
