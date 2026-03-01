@@ -528,9 +528,11 @@ class Authentification:
             Constantes.KIND_REQUETE, body, domain, True, action)
         return self.__call_with_message(content, timeout)
 
-    def command(self, body: dict, domain: str, action: str, timeout: int = 15):
+    def command(self, body: dict, domain: str, action: str, timeout: int = 15, attachments: Optional[dict] = None):
         content, message_id = self.formatteur.signer_message(
             Constantes.KIND_COMMANDE, body, domain, True, action)
+        if attachments:
+            content['attachements'] = attachments
         return self.__call_with_message(content, timeout)
 
 def generer_csr(nom_usager: str) -> CleCsrGenere:

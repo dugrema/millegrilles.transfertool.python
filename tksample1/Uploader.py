@@ -21,6 +21,7 @@ from millegrilles_messages.chiffrage.Mgs4 import CipherMgs4, chiffrer_document, 
 from millegrilles_messages.messages.Hachage import Hacheur
 from millegrilles_messages.chiffrage.SignatureDomaines import SignatureDomaines
 from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat
+from tksample1.AuthUsager import Authentification
 
 from tksample1.Navigation import sync_collection, Repertoire
 
@@ -116,7 +117,7 @@ class UploadFichier:
 
 class Uploader:
 
-    def __init__(self, stop_event, connexion):
+    def __init__(self, stop_event, connexion: Authentification):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__stop_event = stop_event
         self.__connexion = connexion
@@ -482,21 +483,15 @@ class Uploader:
         else:
             transaction['favoris'] = True
 
-        transaction, message_id = self.__connexion.formatteur.signer_message(
-            Constantes.KIND_COMMANDE, transaction,
-            domaine="GrosFichiers", action="nouvelleCollection", ajouter_chaine_certs=True)
-
-        transaction_cle = {
+        commande_cle = {
             'signature': signature_cle.to_dict(),
             'cles': cles_dechiffrage,
         }
-        transaction_cle, message_id = self.__connexion.formatteur.signer_message(
-            Constantes.KIND_COMMANDE, transaction_cle,
+        commande_cle, message_id = self.__connexion.formatteur.signer_message(
+            Constantes.KIND_COMMANDE, commande_cle,
             domaine="MaitreDesCles", action="ajouterCleDomaines", ajouter_chaine_certs=True)
 
-        transaction['attachements'] = {'cle': transaction_cle}
-
-        reponse = self.__connexion.call('creerCollection', transaction)
+        reponse = self.__connexion.command(transaction, "GrosFichiers", "nouvelleCollection", attachments={"cle": commande_cle})
 
         contenu = json.loads(reponse['contenu'])
         cuuid = contenu['tuuid']
