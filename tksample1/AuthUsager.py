@@ -97,7 +97,10 @@ class Authentification:
 
     @property
     def filehost_url(self):
-        return f"{self.__filehosts[self.__filehost_idx]['url_external']}/filehost"
+        url_external = self.__filehosts[self.__filehost_idx]['url_external']
+        if url_external.endswith('/'):
+            url_external = url_external[0:-1]
+        return f"{url_external}/filehost"
 
     def emit(self, *args, **kwargs):
         with self.__lock_emit:

@@ -264,14 +264,15 @@ class Downloader:
                         auth_message, message_id = self.__connexion.formatteur.signer_message(
                             Constantes.KIND_COMMANDE, {}, 'filehost', True, 'authenticate')
                         auth_message["millegrille"] = self.__connexion.formatteur.enveloppe_ca.certificat_pem
-                        url_auth = f'https://{url_collections.hostname}:443/filehost/authenticate'
+                        url_auth = f'{self.__connexion.filehost_url}/authenticate'
                         auth_response = self.__https_session.post(url_auth, json=auth_message)
                         auth_response.raise_for_status()
                         #             let authMessage = await workers.connection.createRoutedMessage(
                         #                 messageStruct.MessageKind.Command, {}, {domaine: 'filehost', action: 'authenticate'});
                         #             authMessage.millegrille = caPem;
 
-                        pass
+                        response = self.__https_session.get(url_fichier)
+                        response.raise_for_status()
                     else:
                         raise e
 

@@ -419,20 +419,26 @@ def decrypt_files(keys: list[dict], received_files: list[dict]):
     decrypted_files = list()
 
     for key in keys:
-        decrypted_keys[key['cle_id']] = multibase.decode(f"m{key['cle_secrete_base64']}")
+        key_copy = key.copy()
+        key_copy['secret_key'] = multibase.decode(f"m{key['cle_secrete_base64']}")
+        decrypted_keys[key_copy['cle_id']] = key_copy
 
     for file in received_files:
         encrypted_metadata = file['metadata']
         try:
-            decryption_key = decrypted_keys[encrypted_metadata['cle_id']]
+            cle_id = encrypted_metadata.get('cle_id') or encrypted_metadata.get('ref_hachage_bytes') or file['version_courante']['fuuid']
+            decryption_key = decrypted_keys[cle_id]
         except KeyError:
             LOGGER.info(f"Missing decryption key for {file['tuuid']}")
             continue
         try:
-            decrypted_metadata = dechiffrer_document_secrete(decryption_key, encrypted_metadata)
+            secret_key = decryption_key['secret_key']
+            decrypted_metadata = dechiffrer_document_secrete(secret_key, encrypted_metadata)
             file = file.copy()
             file['metadata'] = decrypted_metadata
-            file['secret_key'] = decryption_key
+            file['secret_key'] = secret_key
+            if decryption_key.get('nonce'):
+                file['key_info'] = {"nonce": decryption_key['nonce'], "format": decryption_key.get('format')}
             decrypted_files.append(file)
         except nacl.exceptions.RuntimeError:
             LOGGER.warning(f"Error decrypting file tuuid {file["tuuid"]}")
