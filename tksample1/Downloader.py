@@ -260,12 +260,13 @@ class Downloader:
                 except HTTPError as e:
                     if e.response.status_code == 401:
                         # Authenticate
-                        auth_message, message_id = self.__connexion.formatteur.signer_message(
-                            Constantes.KIND_COMMANDE, {}, 'filehost', True, 'authenticate')
-                        auth_message["millegrille"] = self.__connexion.formatteur.enveloppe_ca.certificat_pem
-                        url_auth = f'{self.__connexion.filehost_url}/authenticate'
-                        auth_response = self.__https_session.post(url_auth, json=auth_message)
-                        auth_response.raise_for_status()
+                        # auth_message, message_id = self.__connexion.formatteur.signer_message(
+                        #     Constantes.KIND_COMMANDE, {}, 'filehost', True, 'authenticate')
+                        # auth_message["millegrille"] = self.__connexion.formatteur.enveloppe_ca.certificat_pem
+                        # url_auth = f'{self.__connexion.filehost_url}/authenticate'
+                        # auth_response = self.__https_session.post(url_auth, json=auth_message)
+                        # auth_response.raise_for_status()
+                        self.__connexion.authenticate(self.__https_session)
 
                         # Retry download
                         response = self.__https_session.get(url_fichier, stream=True)

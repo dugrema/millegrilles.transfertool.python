@@ -415,11 +415,13 @@ class Authentification:
             except TimeoutError:
                 pass
 
-    def get_https_session(self):
+    def get_https_session(self, certs=True):
         http_session = requests.Session()
-        http_session.verify = str(self.__path_ca)
-        # http_session.verify = False
-        http_session.cert = (str(self.__path_cert), str(self.__path_cle))
+        if certs:
+            http_session.verify = str(self.__path_ca)
+            http_session.cert = (str(self.__path_cert), str(self.__path_cle))
+        else:
+            http_session.verify = False
         return http_session
 
     def authentifier_socketio(self, sio):
@@ -534,6 +536,16 @@ class Authentification:
         if attachments:
             content['attachements'] = attachments
         return self.__call_with_message(content, timeout)
+
+    def authenticate(self, http_session: requests.Session):
+        # Authenticate
+        auth_message, message_id = self.formatteur.signer_message(
+            Constantes.KIND_COMMANDE, {}, 'filehost', True, 'authenticate')
+        auth_message["millegrille"] = self.formatteur.enveloppe_ca.certificat_pem
+        url_auth = f'{self.filehost_url}/authenticate'
+        auth_response = http_session.post(url_auth, json=auth_message)
+        auth_response.raise_for_status()
+
 
 def generer_csr(nom_usager: str) -> CleCsrGenere:
     return CleCsrGenere.build(nom_usager)

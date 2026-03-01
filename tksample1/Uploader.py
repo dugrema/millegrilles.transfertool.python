@@ -2,6 +2,7 @@ import datetime
 import logging
 import json
 import os.path
+import tempfile
 import time
 
 import requests
@@ -17,7 +18,8 @@ import socketio.exceptions
 from wakepy import keep
 
 from millegrilles_messages.messages import Constantes
-from millegrilles_messages.chiffrage.Mgs4 import CipherMgs4, chiffrer_document, chiffrer_document_nouveau
+from millegrilles_messages.chiffrage.Mgs4 import CipherMgs4, chiffrer_document, chiffrer_document_nouveau, \
+    CipherMgs4WithSecret
 from millegrilles_messages.messages.Hachage import Hacheur
 from millegrilles_messages.chiffrage.SignatureDomaines import SignatureDomaines
 from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat
@@ -114,6 +116,9 @@ class UploadFichier:
             return 'application/octet-stream'
         return guess
 
+
+# UPLOAD_SPLIT_SIZE = 100_000_000
+UPLOAD_SPLIT_SIZE = 1_000_000
 
 class Uploader:
 
@@ -358,66 +363,63 @@ class Uploader:
         if self.__certificats_chiffrage is None:
             self.__certificats_chiffrage = self.__connexion.get_certificats_chiffrage()
 
-        requete_token = dict()
-        requete, message_id = self.__connexion.formatteur.signer_message(
-            Constantes.KIND_REQUETE, requete_token)
-        batch_upload_token = self.__connexion.call('getBatchUpload', data=requete, timeout=5)
-        upload.batch_token = batch_upload_token
-
-        # Preparer transaction
-        stat_fichier = upload.path.stat()
-        taille = stat_fichier.st_size
-        date_fichier = int(stat_fichier.st_ctime)
-
-        # Preparer chiffrage
-        cle_ca = self.__connexion.ca.get_public_x25519()
-        cipher = CipherMgs4(cle_ca)
-        hacheur = Hacheur(hashing_code='blake2b-512', encoding='base58btc')
-
-        SPLIT_SIZE = 100_000_000
-
         if self.__https_session is None:
             # Initialiser holder de session https
-            self.__https_session = self.__connexion.get_https_session()
+            self.__https_session = self.__connexion.get_https_session(certs=False)
+            self.__connexion.authenticate(self.__https_session)
 
-        batch_id = batch_upload_token['batchId']
-        url_collections = self.__connexion.url_collections
+        # First pass, encrypt the file / get the fuuid
+        cle_ca = self.__connexion.ca.get_public_x25519()
+        cipher = CipherMgs4(cle_ca)
 
-        headers = {
-            'content-type': 'application/data',
-            'x-token-jwt': batch_upload_token['token'],
-        }
+        with tempfile.TemporaryFile() as tmpfile:
+            with open(upload.path, 'rb') as fichier:
+                while cipher.hachage is None:
+                    # Preparer chiffrage
+                    hacheur = Hacheur(hashing_code='blake2b-512', encoding='base58btc')
+                    prepare_file(self.__stop_event, fichier, tmpfile, cipher, hacheur)
+            hachage_original = hacheur.finalize()
+            secret_key = cipher.cle_secrete
+            info_dechiffrage = cipher.get_info_dechiffrage(self.__certificats_chiffrage)
+            fuuid = info_dechiffrage['hachage_bytes']
+            encrypted_size = cipher.taille_chiffree
 
-        debut_upload = datetime.datetime.now()
+            # Preparer transaction
+            stat_fichier = upload.path.stat()
+            taille = stat_fichier.st_size
+            date_fichier = int(stat_fichier.st_ctime)
 
-        with open(upload.path, 'rb') as fichier:
-            while cipher.hachage is None:
-                position = fichier.tell()
-                stream = file_iterator(self.__stop_event, fichier, cipher, hacheur, SPLIT_SIZE, upload)
-                url_put = f'https://{url_collections.hostname}:444{url_collections.path}/fichiers/upload/{batch_id}/{position}'
-                response = self.__https_session.put(url_put, headers=headers, data=stream)
+            debut_upload = datetime.datetime.now()
+            # Move pointer back to beginning of file
+            tmpfile.seek(0)
+            while True:
+                position = tmpfile.tell()
+                if position == encrypted_size:
+                    break  # Done
+                stream = file_iterator(self.__stop_event, tmpfile, UPLOAD_SPLIT_SIZE, upload)
+                url_put = f'{self.__connexion.filehost_url}/files/{fuuid}/{position}'
+                response = self.__https_session.put(url_put, data=stream)
                 response.raise_for_status()
 
-        hachage = hacheur.finalize()
-        info_dechiffrage = cipher.get_info_dechiffrage(self.__certificats_chiffrage)
-        fuuid = info_dechiffrage['hachage_bytes']
-        cle_secrete = cipher.cle_secrete
+        fuuid_rechiffre = cipher.hachage
+        if fuuid != fuuid_rechiffre:
+            raise Exception("Digest uploaded mismatches initial value (fuuid)")
         cle_ca_chiffree = info_dechiffrage['cle']
         cles_chiffrees = info_dechiffrage['cles']
         taille_chiffree = cipher.taille_chiffree
         taille_dechiffree = cipher.taille_dechiffree
 
         # Signer cle secrete pour GrosFichiers
-        signature_cle = SignatureDomaines.signer_domaines(cle_secrete, ['GrosFichiers'], cle_ca_chiffree)
+        signature_cle = SignatureDomaines.signer_domaines(secret_key, ['GrosFichiers'], cle_ca_chiffree)
 
         # Preparer et chiffrer la transaction
         data_dechiffre_transaction = {
             'nom': upload.path.name,
             'taille': taille,
             'dateFichier': date_fichier,
-            'hachage_original': hachage,
+            'hachage_original': hachage_original,
         }
-        doc_chiffre = chiffrer_document(cle_secrete, signature_cle.get_cle_ref(), data_dechiffre_transaction)
+        doc_chiffre = chiffrer_document(secret_key, signature_cle.get_cle_ref(), data_dechiffre_transaction)
         transaction = {
             'cle_id': signature_cle.get_cle_ref(),
             'cuuid': upload.cuuid,
@@ -428,9 +430,6 @@ class Uploader:
             'nonce': info_dechiffrage['header'],
             'taille': taille_dechiffree,
         }
-        transaction, message_id = self.__connexion.formatteur.signer_message(
-            Constantes.KIND_COMMANDE, transaction,
-            domaine="GrosFichiers", action="nouvelleVersion", ajouter_chaine_certs=True)
 
         transaction_cle = {
             'signature': signature_cle.to_dict(),
@@ -439,23 +438,18 @@ class Uploader:
         transaction_cle, message_id = self.__connexion.formatteur.signer_message(
             Constantes.KIND_COMMANDE, transaction_cle,
             domaine="MaitreDesCles", action="ajouterCleDomaines", ajouter_chaine_certs=True)
-        transaction['attachements'] = {'cle': transaction_cle}
+        self.__connexion.command(transaction, "GrosFichiers", "nouvelleVersion", attachments={'cle': transaction_cle})
 
-        confirmation_data = {
-            'etat': {'correlation': batch_id, 'hachage': fuuid},
-            'transaction': transaction
-        }
-        url_confirmation = f'https://{url_collections.hostname}:444{url_collections.path}/fichiers/upload/{batch_id}'
+        url_confirmation = f'{self.__connexion.filehost_url}/files/{fuuid}'
+        confirmation_response = self.__https_session.post(url_confirmation, timeout=300)
 
-        headers = {
-            'x-token-jwt': batch_upload_token['token'],
-        }
-        reponse = self.__https_session.post(url_confirmation, headers=headers, json=confirmation_data, timeout=45)
-        if reponse.status_code == 200:
-            reponse_status = reponse.text
-            raise Exception('Erreur POST fichier %s : %s' % (data_dechiffre_transaction, reponse_status))
-        else:
-            reponse.raise_for_status()
+        if confirmation_response.status_code == 401:
+            # Authenticate and retry
+            self.__connexion.authenticate(self.__https_session)
+            confirmation_response = self.__https_session.post(url_confirmation, timeout=300)
+
+        # Note: should handle codes 200, 201 and 202 differently later on (200=>DONE, 202=>ONGOING)
+        confirmation_response.raise_for_status()
 
         fin_upload = datetime.datetime.now()
         duree_upload = fin_upload - debut_upload
@@ -502,7 +496,26 @@ class Uploader:
 UPLOAD_CHUNK_SIZE = 64*1024
 
 
-def file_iterator(stop_event: Event, fp, cipher, hacheur, maxsize, upload: UploadFichier):
+# def file_iterator(stop_event: Event, fp, cipher, hacheur, maxsize, upload: UploadFichier):
+#     current_output_size = 0
+#     maxsize = maxsize - UPLOAD_CHUNK_SIZE
+#     while current_output_size < maxsize:
+#         if stop_event.is_set():
+#             raise Exception("Stopping")
+#         chunk = fp.read(UPLOAD_CHUNK_SIZE)
+#         if len(chunk) == 0:
+#             chunk = cipher.finalize()
+#             yield chunk
+#             return
+#         chunk_size = len(chunk)
+#         upload.add_chunk_uploade(chunk_size)
+#         hacheur.update(chunk)
+#         chunk = cipher.update(chunk)
+#         if len(chunk) > 0:
+#             current_output_size += len(chunk)
+#             yield chunk
+
+def file_iterator(stop_event: Event, fp, maxsize, upload: UploadFichier):
     current_output_size = 0
     maxsize = maxsize - UPLOAD_CHUNK_SIZE
     while current_output_size < maxsize:
@@ -510,16 +523,30 @@ def file_iterator(stop_event: Event, fp, cipher, hacheur, maxsize, upload: Uploa
             raise Exception("Stopping")
         chunk = fp.read(UPLOAD_CHUNK_SIZE)
         if len(chunk) == 0:
-            chunk = cipher.finalize()
             yield chunk
             return
         chunk_size = len(chunk)
         upload.add_chunk_uploade(chunk_size)
+        if len(chunk) > 0:
+            current_output_size += len(chunk)
+            yield chunk
+
+def prepare_file(stop_event: Event, fp, fp_out, cipher, hacheur) -> int:
+    current_output_size = 0
+    while True:
+        if stop_event.is_set():
+            raise Exception("Stopping")
+        chunk = fp.read(UPLOAD_CHUNK_SIZE)
+        if len(chunk) == 0:
+            chunk = cipher.finalize()
+            if len(chunk) > 0:
+                fp_out.write(chunk)
+            return current_output_size
         hacheur.update(chunk)
         chunk = cipher.update(chunk)
         if len(chunk) > 0:
             current_output_size += len(chunk)
-            yield chunk
+            fp_out.write(chunk)
 
 
 class UploaderFrame(tk.Frame):
