@@ -242,8 +242,16 @@ class NavigationFrame(tk.Frame):
         self.__btn_up = tk.Button(
             master=self.__frame_breadcrumb, text="Up", command=self.btn_up_handler
         )
-        self.__btn_up.pack(side=tk.LEFT)
-        self.__breadcrumb_label.pack(side=tk.LEFT)
+
+        # Configure grid layout for breadcrumb frame - Up button fixed on left, breadcrumb expands
+        self.__frame_breadcrumb.grid_columnconfigure(
+            0, weight=0
+        )  # Up button - fixed width
+        self.__frame_breadcrumb.grid_columnconfigure(1, weight=1)  # Breadcrumb - expand
+        self.__frame_breadcrumb.grid_columnconfigure(2, weight=1)  # Spacer on right
+
+        self.__btn_up.grid(row=0, column=0, sticky="w", padx=(5, 5))
+        self.__breadcrumb_label.grid(row=0, column=1, sticky="ew", padx=(0, 5))
 
         self.__frame_transfer_status = tk.Frame(master=self)
         self.upload_status_var = tk.StringVar(
@@ -307,9 +315,9 @@ class NavigationFrame(tk.Frame):
         self.widget_bind()
 
     def grid(self, *args, **kwargs):
-        self.__frame_actions.grid(row=0, column=0)
-        self.__frame_breadcrumb.grid(row=1, column=0)
-        self.__frame_transfer_status.grid(row=2, column=0)
+        self.__frame_actions.grid(row=0, column=0, sticky="w")
+        self.__frame_breadcrumb.grid(row=1, column=0, sticky="w", padx=(5, 0))
+        self.__frame_transfer_status.grid(row=2, column=0, sticky="w")
         self.__dir_frame.grid(row=3, column=0, sticky="nsew", padx=5, pady=5)
 
         super().grid(*args, **kwargs)
