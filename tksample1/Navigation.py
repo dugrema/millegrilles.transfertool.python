@@ -10,7 +10,6 @@ from tkinter import ttk
 from typing import Optional
 
 import multibase
-import nacl
 import pytz
 from millegrilles_messages.chiffrage.DechiffrageUtils import (
     dechiffrer_document_secrete,
@@ -58,7 +57,7 @@ class Navigation:
         self.__en_erreur = erreur
         if erreur is not None:
             # Ajuster l'ecran
-            self.nav_frame.set_erreur(erreur)
+            self.nav_frame.set_erreur(erreur)  # type: ignore
 
     def run(self):
         self.__event_dirty.set()
@@ -89,6 +88,7 @@ class Navigation:
 
         if cuuid is None:
             self.__repertoire = sync_collection(self.connexion)
+            self.nav_frame.afficher_repertoire(self.__repertoire)  # type: ignore
         else:
             try:
                 if self.breadcrumb[-1]["tuuid"] != cuuid:
@@ -98,20 +98,20 @@ class Navigation:
             except IndexError:
                 append_cuuid = True
 
-            if append_cuuid:
+            if append_cuuid and self.__repertoire is not None:
                 # Changer breadcrumb, ajouter repertoire selectionne
                 repertoire = [
                     c for c in self.__repertoire.fichiers if c["tuuid"] == cuuid
                 ].pop()
                 self.breadcrumb.append(repertoire)
                 breadcrumb_path = [p["metadata"]["nom"] for p in self.breadcrumb]
-                breadcrumb_path = pathlib.Path("favoris", *breadcrumb_path)
-                self.nav_frame.set_breadcrumb(breadcrumb_path)
+                self.breadcrumb_path = pathlib.Path("favoris", *breadcrumb_path)
+                self.nav_frame.set_breadcrumb(breadcrumb_path)  # type: ignore
 
             # Recuperer contenu du repertoire
             self.__repertoire = sync_collection(self.connexion, cuuid)
 
-        self.nav_frame.afficher_repertoire(self.__repertoire)
+            self.nav_frame.afficher_repertoire(self.__repertoire)  # type: ignore
 
 
 class NavigationFrame(tk.Frame):
@@ -243,11 +243,12 @@ class NavigationFrame(tk.Frame):
             self.__navigation.upload_directory(path_dir)
 
     def btn_refresh(self):
-        cuuid = self.__repertoire.cuuid
-        self.__navigation.changer_cuuid(cuuid)
+        if self.__repertoire is not None:
+            cuuid = self.__repertoire.cuuid
+            self.__navigation.changer_cuuid(cuuid)
 
     def btn_creer_collection(self):
-        nom_collection = tkinter.simpledialog.askstring(
+        nom_collection = tkinter.simpledialog.askstring(  # type: ignore
             title="Creer repertoire", prompt="Nom du repertoire"
         )
         self.__navigation.creer_collection(nom_collection)
@@ -325,164 +326,6 @@ class NavigationFrame(tk.Frame):
     def set_upload_status(self, status: str):
         self.upload_status_var.set(status)
 
-    def changer_cuuid(self, cuuid: Optional[str] = None):
-        self.__cuuid_a_charger = cuuid
-        self.__event_dirty.set()
-
-    def refresh(self):
-        if self.__repertoire is not None:
-            self.changer_cuuid(self.__repertoire.cuuid)
-        else:
-            self.changer_cuuid(None)
-
-    def __charger_cuuid(self, cuuid: Optional[str] = None):
-        # self.__event_dirty.clear()
-        cuuid = cuuid or self.__cuuid_a_charger
-        self.__cuuid_a_charger = None
-        self.__set_erreur(None)
-
-        if cuuid is None:
-            self.__repertoire = sync_collection(self.connexion)
-        else:
-            try:
-                if self.breadcrumb[-1]["tuuid"] != cuuid:
-                    append_cuuid = True
-                else:
-                    append_cuuid = False
-            except IndexError:
-                append_cuuid = True
-
-            if append_cuuid:
-                # Changer breadcrumb, ajouter repertoire selectionne
-                repertoire = [
-                    c for c in self.__repertoire.fichiers if c["tuuid"] == cuuid
-                ].pop()
-                self.breadcrumb.append(repertoire)
-                breadcrumb_path = [p["metadata"]["nom"] for p in self.breadcrumb]
-                breadcrumb_path = pathlib.Path("favoris", *breadcrumb_path)
-                self.nav_frame.set_breadcrumb(breadcrumb_path)
-
-            # Recuperer contenu du repertoire
-            self.__repertoire = sync_collection(self.connexion, cuuid)
-
-        self.nav_frame.afficher_repertoire(self.__repertoire)
-
-    def naviguer_up(self):
-        if len(self.breadcrumb) == 0:
-            return
-        self.breadcrumb = self.breadcrumb[:-1]
-        breadcrumb_path = [p["metadata"]["nom"] for p in self.breadcrumb]
-        self.nav_frame.set_breadcrumb(pathlib.Path("favoris", *breadcrumb_path))
-
-        # Naviguer vers
-        try:
-            self.__cuuid_a_charger = self.breadcrumb[-1]["tuuid"]
-        except (KeyError, IndexError, AttributeError):
-            self.__cuuid_a_charger = None
-
-        self.__event_dirty.set()
-
-    def run(self):
-        self.__event_dirty.set()
-
-        while self.__stop_event.is_set() is False:
-            self.connexion.connect_event.wait()
-            if self.__stop_event.is_set():
-                return  # Stopping
-
-            self.__event_dirty.wait()
-            if self.__stop_event.is_set():
-                return  # Stopping
-
-            self.__event_dirty.clear()
-
-            try:
-                # Charger le repertoire
-                self.__charger_cuuid()
-            except Exception as e:
-                self.__logger.exception("Erreur navigation")
-                self.__set_erreur(e)
-
-    def ajouter_download(self, tuuid):
-        tuuid_node = [
-            f for f in self.__repertoire.fichiers if f["tuuid"] == tuuid
-        ].pop()
-        if tuuid_node["type_node"] == "Fichier":
-            self.transfer_handler.ajouter_download_fichier(tuuid_node)
-        else:
-            self.transfer_handler.ajouter_download_repertoire(tuuid_node)
-
-    def upload_fichier(self, path_fichier: str):
-        cuuid = self.__repertoire.cuuid
-        if cuuid is None:
-            raise Exception("Upload dans Favoris non supporte")
-        self.transfer_handler.ajouter_upload(cuuid, path_fichier)
-
-    def upload_directory(self, path_dir: str):
-        cuuid = self.__repertoire.cuuid
-        if cuuid is None:
-            raise Exception("Upload dans Favoris non supporte")
-        self.transfer_handler.ajouter_upload(cuuid, path_dir)
-
-    def creer_collection(self, nom: str):
-        cuuid_parent = self.__repertoire.cuuid
-        self.transfer_handler.creer_collection(nom, cuuid_parent)
-        # self.changer_cuuid(self.__repertoire.cuuid)
-        self.refresh()
-
-    def set_upload_status(self, status: str):
-        if self.nav_frame is None:
-            return  # Init en cours
-        try:
-            self.nav_frame.set_upload_status(status)
-        except:
-            self.__logger.exception("Erreur set_upload_status")
-
-    def set_download_status(self, status: str):
-        if self.nav_frame is None:
-            return  # Init en cours
-        try:
-            self.nav_frame.set_download_status(status)
-        except:
-            self.__logger.exception("Erreur set_download_status")
-
-    def grid(self, *args, **kwargs):
-        self.__frame_actions.grid(row=0, column=0)
-        self.__frame_breadcrumb.grid(row=1, column=0)
-        self.__frame_transfer_status.grid(row=2, column=0)
-        self.__dir_frame.grid(row=3, column=0)
-
-        super().grid(*args, **kwargs)
-
-    def widget_bind(self):
-        self.dirlist.bind("<Button-3>", self.dirlist_rightclick_fichier)
-        self.dirlist.bind("<Double-Button-1>", self.dirlist_doubleclick_fichier)
-
-    # def pack(self):
-    #     # self.__btn_refresh.pack()
-    #     # self.__btn_creer_collection.pack()
-    #     # self.__btn_download.pack()
-    #     # self.__btn_upload.pack()
-    #     # self.__btn_upload_dir.pack()
-    #     self.__frame_actions.grid(row=0, column=0)
-    #
-    #     self.__frame_actions.grid(row=1, column=0)
-    #     self.__frame_breadcrumb.grid(row=2, column=0)
-    #     # self.__breadcrumb_label.pack()
-    #     # self.__btn_up.grid(row=0, column=0)
-    #     # self.__breadcrumb_label.pack()
-    #
-    #     self.__dir_frame.grid(row=3, column=0)
-    #     # self.dirlist.pack(side="right")
-    #
-    #     super().grid(row=0, column=1)
-
-    def set_download_status(self, status: str):
-        self.download_status_var.set(status)
-
-    def set_upload_status(self, status: str):
-        self.upload_status_var.set(status)
-
 
 def sync_collection(connexion: Authentification, cuuid: Optional[str] = None):
     skip = 0
@@ -495,26 +338,30 @@ def sync_collection(connexion: Authentification, cuuid: Optional[str] = None):
         }
 
         reponse_sync = connexion.request(requete, "GrosFichiers", "syncDirectory")
+        decrypted_content = None
         try:
             contenu_sync = json.loads(reponse_sync["contenu"])
             if contenu_sync["ok"] is not True:
                 raise Exception(
                     f"Error calling requete.GrosFichiers.syncDirectory: {contenu_sync.get('err')}"
                 )
+            decrypted_content = contenu_sync
         except JSONDecodeError:
             # Likely encrypted response (good)
-            decrypted_content = dechiffrer_reponse(connexion.clecert, reponse_sync)
+            decrypted_content = dechiffrer_reponse(connexion.clecert, reponse_sync)  # type: ignore
+            if decrypted_content is None:
+                raise Exception("Decryption failed")
 
-        keys = decrypted_content["keys"]
+        keys = decrypted_content["keys"]  # type: ignore
         received_files = [
             f for f in decrypted_content["files"] if f["supprime"] is False
-        ]
+        ]  # type: ignore
         decrypted_keys, decrypted_files = decrypt_files(keys, received_files)
         fichiers_complet.extend(decrypted_files)
 
-        skip += len(decrypted_content["files"])
+        skip += len(decrypted_content["files"])  # type: ignore
 
-        if decrypted_content["complete"] is True:
+        if decrypted_content["complete"] is True:  # type: ignore
             break
 
     if len(fichiers_complet) == 0:
@@ -561,7 +408,7 @@ def decrypt_files(keys: list[dict], received_files: list[dict]):
                     "format": decryption_key.get("format"),
                 }
             decrypted_files.append(file)
-        except nacl.exceptions.RuntimeError:
+        except Exception:
             LOGGER.warning(f"Error decrypting file tuuid {file['tuuid']}")
 
     return decrypted_keys.values(), decrypted_files

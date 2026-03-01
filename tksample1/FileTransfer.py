@@ -1,20 +1,17 @@
 import logging
 import tkinter as tk
+from threading import Event, Thread
 from tkinter import ttk
 from typing import Optional
-from threading import Event, Thread
 
 from tksample1.AuthUsager import Authentification
-from tksample1.Downloader import Downloader
-from tksample1.Uploader import Uploader
-from tksample1.Downloader import DownloadFichier
-from tksample1.Uploader import UploadFichier
+from tksample1.Downloader import Downloader, DownloadFichier
+from tksample1.Uploader import Uploader, UploadFichier
 
 
 class TransferHandler:
-
     def __init__(self, stop_event, connexion: Authentification):
-        self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
+        self.__logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
         self.__stop_event = stop_event
         self.frame = None
         self.connexion = connexion
@@ -29,7 +26,9 @@ class TransferHandler:
         self.__download_dirty = False
         self.__upload_dirty = False
 
-        self.__thread_status = Thread(name="TransferStatus", target=self.thread_status, daemon=False)
+        self.__thread_status = Thread(
+            name="TransferStatus", target=self.thread_status, daemon=False
+        )
         self.__thread_status.start()
 
     def quit(self):
@@ -72,10 +71,14 @@ class TransferHandler:
                 if self.transfer_frame is not None:
                     # Update status
                     # status_download = 'Download inactif'
-                    status_download, download_en_cours, q_download = self.downloader.download_status()
+                    status_download, download_en_cours, q_download = (
+                        self.downloader.download_status()
+                    )
                     self.transfer_frame.download_status_var.set(status_download)
 
-                    status_upload, upload_en_cours, q_upload = self.uploader.upload_status()
+                    status_upload, upload_en_cours, q_upload = (
+                        self.uploader.upload_status()
+                    )
                     self.transfer_frame.upload_status_var.set(status_upload)
                     if upload_comp is not upload_en_cours:
                         upload_comp = upload_en_cours
@@ -99,8 +102,10 @@ class TransferHandler:
                     if self.__download_dirty:
                         self.__download_dirty = False
                         # Refresh liste downloads
-                        self.transfer_frame.refresh_download(download_en_cours, q_download)
-            except:
+                        self.transfer_frame.refresh_download(
+                            download_en_cours, q_download
+                        )
+            except Exception:
                 self.__logger.exception("Erreur refresh transferts")
                 self.__transfer_dirty.wait(timeout=10)
 
@@ -108,35 +113,46 @@ class TransferHandler:
 
 
 class TransferFrame(tk.Frame):
-
     def __init__(self, transfer_handler, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
+        self.__logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
         self.__transfer_handler = transfer_handler
 
         self.__frame_upload = tk.Frame(master=self)
-        self.upload_status_var = tk.StringVar(master=self.__frame_upload, value='Upload ...')
-        self.__upload_status_label = tk.Label(master=self.__frame_upload, textvariable=self.upload_status_var, justify="left")
+        self.upload_status_var = tk.StringVar(
+            master=self.__frame_upload, value="Upload ..."
+        )
+        self.__upload_status_label = tk.Label(
+            master=self.__frame_upload,
+            textvariable=self.upload_status_var,
+            justify="left",
+        )
         self.__upload_status_label.grid(row=0, column=0)
         self.__treeview_upload = self.__add_treeview(self.__frame_upload)
 
         self.__frame_download = tk.Frame(master=self)
-        self.download_status_var = tk.StringVar(master=self.__frame_download, value='Download ...')
-        self.__download_status_label = tk.Label(master=self.__frame_download, textvariable=self.download_status_var, justify="left")
+        self.download_status_var = tk.StringVar(
+            master=self.__frame_download, value="Download ..."
+        )
+        self.__download_status_label = tk.Label(
+            master=self.__frame_download,
+            textvariable=self.download_status_var,
+            justify="left",
+        )
         self.__download_status_label.grid(row=0, column=0)
         self.__treeview_download = self.__add_treeview(self.__frame_download)
 
         self.add_widgets()
 
     def __add_treeview(self, master):
-        treeview = ttk.Treeview(master=master, columns=('taille', 'etat'), height=10)
-        treeview['columns'] = ('taille', 'etat')
+        treeview = ttk.Treeview(master=master, columns=("taille", "etat"), height=10)
+        treeview["columns"] = ("taille", "etat")
 
         treeview.heading("taille", text="Taille")
         treeview.heading("etat", text="Etat")
 
         treeview.column("#0", width=600)
-        treeview.column("taille", width=100, anchor='se')
+        treeview.column("taille", width=100, anchor="se")
         treeview.column("etat", width=75)
 
         treeview.grid(row=1, column=0)
@@ -156,16 +172,32 @@ class TransferFrame(tk.Frame):
         self.__treeview_upload.delete(*self.__treeview_upload.get_children())
         if courant is not None:
             nom_fichier = str(courant.path)
-            self.__treeview_upload.insert('', 'end', iid=nom_fichier, text=nom_fichier, values=(courant.taille, "En cours"))
+            self.__treeview_upload.insert(
+                "",
+                "end",
+                iid=nom_fichier,
+                text=nom_fichier,
+                values=(courant.taille, "En cours"),
+            )
         for item in q:
             path_item = str(item.path)
             if isinstance(item, UploadFichier):
-                self.__treeview_upload.insert('', 'end', iid=path_item, text=path_item,
-                                              values=(item.taille, "Attente"))
+                self.__treeview_upload.insert(
+                    "",
+                    "end",
+                    iid=path_item,
+                    text=path_item,
+                    values=(item.taille, "Attente"),
+                )
             else:
                 item.preparer_taille()
-                self.__treeview_upload.insert('', 'end', iid=path_item, text=path_item,
-                                              values=(item.taille, "Attente"))
+                self.__treeview_upload.insert(
+                    "",
+                    "end",
+                    iid=path_item,
+                    text=path_item,
+                    values=(item.taille, "Attente"),
+                )
 
     def refresh_download(self, courant, q: list):
         self.__treeview_download.delete(*self.__treeview_download.get_children())
@@ -176,14 +208,26 @@ class TransferFrame(tk.Frame):
             except AttributeError:
                 courant.preparer_taille(self.__transfer_handler.connexion)
                 taille = "N/D"
-            self.__treeview_download.insert('', 'end', iid=courant.tuuid, text=nom_fichier, values=(taille, "En cours"))
+            self.__treeview_download.insert(
+                "",
+                "end",
+                iid=courant.tuuid,
+                text=nom_fichier,
+                values=(taille, "En cours"),
+            )
         for item in q:
             nom_item = item.nom
             if isinstance(item, DownloadFichier):
-                self.__treeview_download.insert('', 'end', iid=item.tuuid, text=nom_item,
-                                                values=(item.taille_chiffree, "Attente"))
+                self.__treeview_download.insert(
+                    "",
+                    "end",
+                    iid=item.tuuid,
+                    text=nom_item,
+                    values=(item.taille_chiffree, "Attente"),
+                )
             else:
                 courant.preparer_taille(self.__transfer_handler.connexion)
                 taille = "N/D"
-                self.__treeview_download.insert('', 'end', iid=item.tuuid, text=nom_item,
-                                                values=(taille, "Attente"))
+                self.__treeview_download.insert(
+                    "", "end", iid=item.tuuid, text=nom_item, values=(taille, "Attente")
+                )

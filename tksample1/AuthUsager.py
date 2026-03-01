@@ -27,7 +27,12 @@ from millegrilles_messages.messages.ValidateurMessage import ValidateurMessage
 
 
 class Authentification:
-    def __init__(self, stop_event: Event, downdir: str = None, tmpdir: str = None):
+    def __init__(
+        self,
+        stop_event: Event,
+        downdir: Optional[str] = None,
+        tmpdir: Optional[str] = None,
+    ):
         self.__logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
         self.__stop_event = stop_event
 
@@ -123,18 +128,18 @@ class Authentification:
 
     def emit(self, *args, **kwargs):
         with self.__lock_emit:
-            return self.__sio.emit(*args, **kwargs)
+            return self.__sio.emit(*args, **kwargs)  # type: ignore
 
     def call(self, *args, **kwargs):
         with self.__lock_emit:
-            return self.__sio.call(*args, **kwargs)
+            return self.__sio.call(*args, **kwargs)  # type: ignore
 
     def init_config(self):
         if self.charger_configuration():
-            self.auth_frame.entry_nomusager.insert(0, self.nom_usager)
-            serveur_url = self.url_fiche_serveur.hostname
-            self.auth_frame.entry_serveur.insert(0, serveur_url)
-            self.auth_frame.btn_connecter_usager()
+            self.auth_frame.entry_nomusager.insert(0, self.nom_usager)  # type: ignore
+            serveur_url = self.url_fiche_serveur.hostname  # type: ignore
+            self.auth_frame.entry_serveur.insert(0, serveur_url)  # type: ignore
+            self.auth_frame.btn_connecter_usager()  # type: ignore
 
     def charger_configuration(self):
         # Verifier si on a deja une connexion de configuree
@@ -161,7 +166,7 @@ class Authentification:
     def sauvegarder_configuration(self):
         config = {
             "nom_usager": self.nom_usager,
-            "url_fiche_serveur": self.url_fiche_serveur.geturl(),
+            "url_fiche_serveur": self.url_fiche_serveur.geturl(),  # type: ignore
         }
         with open(self.__path_config, "wt") as fichier:
             json.dump(config, fichier)
@@ -200,13 +205,13 @@ class Authentification:
             raise Exception("Auth en cours ou deja authentifie")
 
         # Preparer URL de la fiche
-        url_parsed = parse.urlparse(url_serveur, scheme="https")
+        url_parsed = parse.urlparse(url_serveur, scheme="https")  # type: ignore
         if url_parsed.hostname is None:
-            url_parsed = parse.urlparse(f"https://{url_parsed.path}/fiche.json")
+            url_parsed = parse.urlparse(f"https://{url_parsed.path}/fiche.json")  # type: ignore
         elif url_parsed.path != "/fiche.json":
-            url_parsed = parse.urlparse(f"https://{url_parsed.hostname}/fiche.json")
+            url_parsed = parse.urlparse(f"https://{url_parsed.hostname}/fiche.json")  # type: ignore
 
-        self.url_fiche_serveur = url_parsed
+        self.url_fiche_serveur = url_parsed  # type: ignore
 
         self.nom_usager = nom_usager
 
@@ -231,7 +236,7 @@ class Authentification:
                                 "On a un certificat valide pour l'usager %s sur la MilleGrille %s"
                                 % (nom_usager, idmg)
                             )
-                            self._cle_certificat = cle_certificat
+                            self._cle_certificat = cle_certificat  # type: ignore
                             self.__pret.set()
                             return
 
@@ -248,7 +253,7 @@ class Authentification:
             sio = self.__sio
             self.__sio = None
             sio.disconnect()
-        self.auth_frame.set_etat(False)
+        self.auth_frame.set_etat(True)  # type: ignore
         self.connect_event.clear()
 
     def quit(self):
@@ -284,7 +289,7 @@ class Authentification:
                         if self.__sio:
                             self.__sio.disconnect()
                         self.__sio = None
-                        self.auth_frame.set_etat(False)
+                        self.auth_frame.set_etat(False)  # type: ignore
 
                 if self.__sio is not None:
                     self.connect_event.set()  # Declarer la connexion prete a l'utilisation
@@ -301,8 +306,8 @@ class Authentification:
                 raise Exception("Authentification thread crash")
 
     def parse_fiche(self) -> Union[list, parse.ParseResult]:
-        url_fiche = self.url_fiche_serveur.geturl()
-        reponse = requests.get(url_fiche, verify=False)
+        url = self.url_fiche_serveur.geturl()  # type: ignore
+        reponse = requests.get(url, verify=False)
         reponse_json = reponse.json()
         contenu = json.loads(reponse_json["contenu"])
 
@@ -337,7 +342,7 @@ class Authentification:
         self.__authenticated = False
         self.connecter_socketio()
 
-        @self.__sio.on("disconnect")
+        @self.__sio.on("disconnect")  # type: ignore
         def on_disconnect():
             if self.__sio is not None:
                 while self.__stop_event.is_set() is False:
@@ -355,9 +360,9 @@ class Authentification:
                     except Exception:
                         self.__logger.exception("Erreur reconnexion")
 
-        filehost_response = self.request({}, "CoreTopologie", "getFilehosts")
-        filehost_content = json.loads(filehost_response["contenu"])
-        if filehost_content["ok"] is not True:
+        filehost_response = self.request({}, "CoreTopologie", "getFilehosts")  # type: ignore
+        filehost_content = json.loads(filehost_response["contenu"])  # type: ignore
+        if filehost_content["ok"] is not True:  # type: ignore
             raise Exception(
                 f"Error calling requete.CoreTopologie.getFilehosts: {filehost_content.get('err')}"
             )
@@ -378,7 +383,8 @@ class Authentification:
             sio.connect(connexion_socketio, socketio_path="/millegrilles/socket.io")
             try:
                 # Emettre CSR et attendre activation
-                csr_pem = self.__cle_csr_genere.get_pem_csr()
+                csr_pem = self.__cle_csr_genere.get_pem_csr()  # type: ignore
+                cle_pem = self.__cle_csr_genere.get_pem_cle()  # type: ignore
                 cle_publique = binascii.hexlify(
                     self.__cle_csr_genere.cle_publique
                 ).decode("utf-8")
@@ -390,8 +396,7 @@ class Authentification:
                     "Demande enregistrement usager %s avec code %s"
                     % (self.nom_usager, code_activation_ecran)
                 )
-                self.auth_frame.set_etat(code_activation=code_activation_ecran)
-
+                self.auth_frame.set_etat(code_activation=code_activation_ecran)  # type: ignore
                 commande_ajouter_csr = {"nomUsager": self.nom_usager, "csr": csr_pem}
                 # sio.emit('ecouterEvenementsActivationFingerprint', {'fingerprintPk': cle_publique}, callback=self.callback_activation)
                 # sio.emit('ajouterCsrRecovery', commande_ajouter_csr, callback=self.callback_csr)
@@ -425,7 +430,7 @@ class Authentification:
             except Exception as e:
                 sio.disconnect()
                 # http_session.close()
-                self.auth_frame.set_etat(False)
+                self.auth_frame.set_etat(False)  # type: ignore
                 raise e
 
     def recevoir_certificat(self, data):
@@ -433,7 +438,7 @@ class Authentification:
         contenu = json.loads(message["contenu"])
         certificat = contenu["certificat"]
         ca = certificat[-1]
-        cle_pem = self.__cle_csr_genere.get_pem_cle()
+        csr_pem = self.__cle_csr_genere.get_pem_csr()  # type: ignore
         certificat = "\n".join(certificat[0:2])
 
         # Sauvegarder le nouvel usager/url serveur
@@ -442,17 +447,18 @@ class Authentification:
         # Sauvegarder certificats
         with open(self.__path_cert, "wt") as fichier:
             fichier.write(certificat)
+        cle_pem = self.__cle_csr_genere.get_pem_csr()  # type: ignore
         with open(self.__path_cle, "wt") as fichier:
             fichier.write(cle_pem)
         self.__path_cle.chmod(0o600)
         with open(self.__path_ca, "wt") as fichier:
             fichier.write(ca)
 
-        clecertificat = CleCertificat.from_pems(cle_pem, certificat)
-        if clecertificat.cle_correspondent() is False:
+        clecert = CleCertificat.from_pems(cle_pem, certificat)  # type: ignore
+        if clecert.cle_correspondent() is False:
             raise Exception("erreur cle/certificat ne correspondent pas")
 
-        self._cle_certificat = clecertificat
+        self._cle_certificat = clecert
 
     def callback_csr(self, *args):
         pass

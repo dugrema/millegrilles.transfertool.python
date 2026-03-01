@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import datetime
 import json
 import logging
@@ -31,7 +33,10 @@ from tksample1.Navigation import Repertoire, sync_collection
 
 class UploadRepertoire:
     def __init__(
-        self, cuuid_parent: str, path_dir: pathlib.Path, parent: Optional = None
+        self,
+        cuuid_parent: str,
+        path_dir: pathlib.Path,
+        parent: Optional[UploadRepertoire] = None,  # type: ignore[no-redef]
     ):
         self.__cuuid_parent = cuuid_parent
         self.__path_dir = path_dir
@@ -68,7 +73,7 @@ class UploadRepertoire:
             self.taille = taille_rep
             self.nombre_sous_fichiers = nombre_fichiers_reps
 
-    def __preparer_recursif(self, path_rep: pathlib.Path) -> (int, int):
+    def __preparer_recursif(self, path_rep: pathlib.Path) -> tuple[int, int]:
         compte_fichiers = 0
         taille_fichiers = 0
         for f in path_rep.iterdir():
@@ -88,7 +93,7 @@ class UploadFichier:
         self,
         cuuid: str,
         path_fichier: pathlib.Path,
-        parent: Optional[UploadRepertoire] = None,
+        parent: Optional[UploadRepertoire] = None,  # type: ignore
     ):
         self.cuuid = cuuid
         self.__path_fichier = path_fichier
@@ -169,15 +174,17 @@ class Uploader:
     def set_url_upload(self, url_upload: parse.ParseResult):
         self.__url_upload = url_upload
 
-    def ajouter_upload(self, cuuid_parent: str, path_upload: str) -> UploadFichier:
-        path_upload = pathlib.Path(path_upload)
-        if path_upload.is_dir():
-            upload_item = UploadRepertoire(cuuid_parent, path_upload)
-        else:
-            upload_item = UploadFichier(cuuid_parent, path_upload)
+    def ajouter_upload(
+        self, cuuid_parent: str, path_upload: str | pathlib.Path
+    ) -> UploadFichier | UploadRepertoire:
+        path_upload = pathlib.Path(path_upload)  # type: ignore
+        if path_upload.is_dir():  # type: ignore
+            upload_item = UploadRepertoire(cuuid_parent, path_upload)  # type: ignore
+        else:  # type: ignore
+            upload_item = UploadFichier(cuuid_parent, path_upload)  # type: ignore
         self.__upload_queue.append(upload_item)
         self.__upload_pret.set()
-        return upload_item
+        return upload_item  # type: ignore
 
     def upload_thread(self):
         try:
@@ -213,11 +220,11 @@ class Uploader:
                                         "Type upload non supporte : %s"
                                         % self.__upload_en_cours
                                     )
-                            except Exception:
+                            except Exception:  # type: ignore
                                 self.__logger.exception("Erreur upload")
                             finally:
                                 self.__upload_en_cours = None
-        except Exception:
+        except Exception:  # type: ignore
             self.__logger.exception("upload_thread interrompue par error")
             self.__stop_event.set()  # Causer l'arret de l'application
             self.__upload_queue.clear()
@@ -238,14 +245,14 @@ class Uploader:
                 progres = int(
                     self.__upload_en_cours.taille_uploade
                     * 100.0
-                    / self.__upload_en_cours.taille
-                )
+                    / self.__upload_en_cours.taille  # type: ignore
+                )  # type: ignore
                 fichiers_restants = len(self.__upload_queue)
                 if isinstance(self.__upload_en_cours, UploadRepertoire):
                     fichiers_restants += (
                         self.__upload_en_cours.nombre_sous_fichiers
-                        - self.__upload_en_cours.fichiers_uploades
-                    )
+                        - self.__upload_en_cours.fichiers_uploades  # type: ignore[arg-type]
+                    )  # type: ignore
                 if fichiers_restants > 0:
                     return "Uploading %d%% (%d fichiers restants)" % (
                         progres,
@@ -253,8 +260,8 @@ class Uploader:
                     )
                 else:
                     return "Uploading %d%%" % progres
-            except Exception as e:
-                self.__logger.debug("Erreur update upload : %s" % e)
+            except Exception:
+                self.__logger.debug("Erreur update upload")
                 return "Uploading ..."
         elif len(self.__upload_queue) > 0:
             return "Uploading ..."
@@ -375,7 +382,7 @@ class Uploader:
                     upload.reset_taille_uploade()
                 self.__upload_fichier_1pass(upload)
                 break
-            except:
+            except Exception:
                 self.__logger.exception(
                     "Erreur upload fichier - retry in %s" % interval_retry
                 )
