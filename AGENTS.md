@@ -2,6 +2,10 @@
 
 This is a python file transfer utility for MilleGrilles.
 
+## Development
+
+Run using the .venv in the project (use `. .venv/bin/activate`, not `source`. To run: `python3 -m tksample1`.
+
 ## Folder Structure
 
 ```

@@ -1,36 +1,38 @@
 import datetime
-import logging
 import json
+import logging
+import mimetypes
 import os.path
+import pathlib
 import tempfile
 import time
-
-import requests
 import tkinter as tk
-import pathlib
-import mimetypes
-
 from threading import Event, Thread
 from typing import Optional, Union
 from urllib import parse
 
+import requests
 import socketio.exceptions
+from millegrilles_messages.chiffrage.Mgs4 import (
+    CipherMgs4,
+    CipherMgs4WithSecret,
+    chiffrer_document,
+    chiffrer_document_nouveau,
+)
+from millegrilles_messages.chiffrage.SignatureDomaines import SignatureDomaines
+from millegrilles_messages.messages import Constantes
+from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat
+from millegrilles_messages.messages.Hachage import Hacheur
 from wakepy import keep
 
-from millegrilles_messages.messages import Constantes
-from millegrilles_messages.chiffrage.Mgs4 import CipherMgs4, chiffrer_document, chiffrer_document_nouveau, \
-    CipherMgs4WithSecret
-from millegrilles_messages.messages.Hachage import Hacheur
-from millegrilles_messages.chiffrage.SignatureDomaines import SignatureDomaines
-from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat
 from tksample1.AuthUsager import Authentification
-
-from tksample1.Navigation import sync_collection, Repertoire
+from tksample1.Navigation import Repertoire, sync_collection
 
 
 class UploadRepertoire:
-
-    def __init__(self, cuuid_parent: str, path_dir: pathlib.Path, parent: Optional = None):
+    def __init__(
+        self, cuuid_parent: str, path_dir: pathlib.Path, parent: Optional = None
+    ):
         self.__cuuid_parent = cuuid_parent
         self.__path_dir = path_dir
         self.__parent = parent
@@ -82,8 +84,12 @@ class UploadRepertoire:
 
 
 class UploadFichier:
-
-    def __init__(self, cuuid: str, path_fichier: pathlib.Path, parent: Optional[UploadRepertoire] = None):
+    def __init__(
+        self,
+        cuuid: str,
+        path_fichier: pathlib.Path,
+        parent: Optional[UploadRepertoire] = None,
+    ):
         self.cuuid = cuuid
         self.__path_fichier = path_fichier
         self.__parent = parent
@@ -113,20 +119,20 @@ class UploadFichier:
     def mimetype(self):
         guess = mimetypes.guess_type(self.__path_fichier)[0]
         if guess is None:
-            return 'application/octet-stream'
+            return "application/octet-stream"
         return guess
 
 
 # UPLOAD_SPLIT_SIZE = 100_000_000
 UPLOAD_SPLIT_SIZE = 1_000_000
 
-class Uploader:
 
+class Uploader:
     def __init__(self, stop_event, connexion: Authentification):
-        self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
+        self.__logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
         self.__stop_event = stop_event
         self.__connexion = connexion
-
+        self.__tmp_path = connexion.tmp_path
         self.__upload_queue = list()
         self.__upload_pret = Event()
 
@@ -146,8 +152,9 @@ class Uploader:
 
     def __init_mime_types(self):
         import tksample1
+
         path_module = pathlib.Path(os.path.abspath(tksample1.__file__))
-        path_json = pathlib.Path(path_module.parent, 'mimetypes.json')
+        path_json = pathlib.Path(path_module.parent, "mimetypes.json")
         with open(path_json) as fichier:
             json_mt = json.load(fichier)
             for ext, mt in json_mt.items():
@@ -197,10 +204,15 @@ class Uploader:
                                 # self.update_upload_status()
                                 if isinstance(self.__upload_en_cours, UploadFichier):
                                     self.upload_fichier(self.__upload_en_cours)
-                                elif isinstance(self.__upload_en_cours, UploadRepertoire):
+                                elif isinstance(
+                                    self.__upload_en_cours, UploadRepertoire
+                                ):
                                     self.upload_repertoire(self.__upload_en_cours)
                                 else:
-                                    self.__logger.error("Type upload non supporte : %s" % self.__upload_en_cours)
+                                    self.__logger.error(
+                                        "Type upload non supporte : %s"
+                                        % self.__upload_en_cours
+                                    )
                             except Exception:
                                 self.__logger.exception("Erreur upload")
                             finally:
@@ -223,23 +235,35 @@ class Uploader:
 
         if self.__upload_en_cours is not None:
             try:
-                progres = int(self.__upload_en_cours.taille_uploade * 100.0 / self.__upload_en_cours.taille)
+                progres = int(
+                    self.__upload_en_cours.taille_uploade
+                    * 100.0
+                    / self.__upload_en_cours.taille
+                )
                 fichiers_restants = len(self.__upload_queue)
                 if isinstance(self.__upload_en_cours, UploadRepertoire):
-                    fichiers_restants += self.__upload_en_cours.nombre_sous_fichiers - self.__upload_en_cours.fichiers_uploades
+                    fichiers_restants += (
+                        self.__upload_en_cours.nombre_sous_fichiers
+                        - self.__upload_en_cours.fichiers_uploades
+                    )
                 if fichiers_restants > 0:
-                    return 'Uploading %d%% (%d fichiers restants)' % (progres, fichiers_restants)
+                    return "Uploading %d%% (%d fichiers restants)" % (
+                        progres,
+                        fichiers_restants,
+                    )
                 else:
-                    return 'Uploading %d%%' % progres
+                    return "Uploading %d%%" % progres
             except Exception as e:
                 self.__logger.debug("Erreur update upload : %s" % e)
-                return 'Uploading ...'
+                return "Uploading ..."
         elif len(self.__upload_queue) > 0:
-            return 'Uploading ...'
+            return "Uploading ..."
         else:
-            return 'Upload inactif'
+            return "Upload inactif"
 
-    def upload_repertoire(self, upload: UploadRepertoire, rep_parent: Optional[Repertoire] = None):
+    def upload_repertoire(
+        self, upload: UploadRepertoire, rep_parent: Optional[Repertoire] = None
+    ):
         if rep_parent is None:
             cuuid_parent = upload.cuuid_parent
             while True:
@@ -249,7 +273,9 @@ class Uploader:
                     rep_parent = sync_collection(self.__connexion, cuuid_parent)
                     break
                 except socketio.exceptions.TimeoutError:
-                    self.__logger.exception("upload_repertoire Erreur sync collection (1), retry dans 20 secondes")
+                    self.__logger.exception(
+                        "upload_repertoire Erreur sync collection (1), retry dans 20 secondes"
+                    )
                     time.sleep(20)
         else:
             cuuid_parent = rep_parent.cuuid
@@ -258,8 +284,10 @@ class Uploader:
         nom_repertoire = upload.path.name
 
         try:
-            rep_existant = [f for f in rep_parent.fichiers if f['nom'] == nom_repertoire].pop()
-            cuuid_courant = rep_existant['tuuid']
+            rep_existant = [
+                f for f in rep_parent.fichiers if f["nom"] == nom_repertoire
+            ].pop()
+            cuuid_courant = rep_existant["tuuid"]
             while True:
                 if self.__stop_event.is_set() is True:
                     return  # Stopping
@@ -267,7 +295,9 @@ class Uploader:
                     rep_courant = sync_collection(self.__connexion, cuuid_courant)
                     break
                 except socketio.exceptions.TimeoutError:
-                    self.__logger.exception("upload_repertoire Erreur sync collection (2), retry dans 20 secondes")
+                    self.__logger.exception(
+                        "upload_repertoire Erreur sync collection (2), retry dans 20 secondes"
+                    )
                     time.sleep(20)
 
         except IndexError:
@@ -281,13 +311,15 @@ class Uploader:
                     rep_courant = Repertoire(list(), cuuid_courant)
                     break
                 except socketio.exceptions.TimeoutError:
-                    self.__logger.exception("upload_repertoire Erreur sync collection (1), retry dans 20 secondes")
+                    self.__logger.exception(
+                        "upload_repertoire Erreur sync collection (1), retry dans 20 secondes"
+                    )
                     time.sleep(20)
 
         # Generer dict des fichiers/sous-repertoires
         rep_map = dict()
         for item in rep_courant.fichiers:
-            rep_map[item['nom']] = item
+            rep_map[item["nom"]] = item
 
         path_src = pathlib.Path(upload.path)
         liste_sous_items = list()
@@ -315,7 +347,8 @@ class Uploader:
                             break
                         except socketio.exceptions.TimeoutError:
                             self.__logger.exception(
-                                "upload_repertoire Erreur creer collection (2), retry dans 20 secondes")
+                                "upload_repertoire Erreur creer collection (2), retry dans 20 secondes"
+                            )
                             time.sleep(20)
                     self.upload_repertoire(rep_item, None)  # Parent none force resync
             else:
@@ -336,21 +369,28 @@ class Uploader:
         while self.__stop_event.is_set() is False:
             try:
                 if retry_count > 0:
-                    self.__logger.info("Upload fichier %s retry %d" % (upload.path, retry_count))
+                    self.__logger.info(
+                        "Upload fichier %s retry %d" % (upload.path, retry_count)
+                    )
                     upload.reset_taille_uploade()
                 self.__upload_fichier_1pass(upload)
                 break
             except:
-                self.__logger.exception("Erreur upload fichier - retry in %s" % interval_retry)
+                self.__logger.exception(
+                    "Erreur upload fichier - retry in %s" % interval_retry
+                )
                 if upload.batch_token is not None:
                     # Delete le contenu partiellement uploade
-                    batch_id = upload.batch_token['batchId']
+                    batch_id = upload.batch_token["batchId"]
                     url_collections = self.__connexion.url_collections
-                    url_put = f'https://{url_collections.hostname}:444{url_collections.path}/fichiers/upload/{batch_id}'
-                    headers = {'x-token-jwt': upload.batch_token['token']}
+                    url_put = f"https://{url_collections.hostname}:444{url_collections.path}/fichiers/upload/{batch_id}"
+                    headers = {"x-token-jwt": upload.batch_token["token"]}
                     response = self.__https_session.delete(url_put, headers=headers)
                     if response.status_code not in (200, 404):
-                        self.__logger.warning("Erreur suppression upload partiel, code : %d" % response.status_code)
+                        self.__logger.warning(
+                            "Erreur suppression upload partiel, code : %d"
+                            % response.status_code
+                        )
 
                     # Reset token
                     upload.batch_token = None
@@ -372,16 +412,16 @@ class Uploader:
         cle_ca = self.__connexion.ca.get_public_x25519()
         cipher = CipherMgs4(cle_ca)
 
-        with tempfile.TemporaryFile() as tmpfile:
-            with open(upload.path, 'rb') as fichier:
+        with tempfile.NamedTemporaryFile(dir=self.__tmp_path, delete=False) as tmpfile:
+            with open(upload.path, "rb") as fichier:
                 while cipher.hachage is None:
                     # Preparer chiffrage
-                    hacheur = Hacheur(hashing_code='blake2b-512', encoding='base58btc')
+                    hacheur = Hacheur(hashing_code="blake2b-512", encoding="base58btc")
                     prepare_file(self.__stop_event, fichier, tmpfile, cipher, hacheur)
             hachage_original = hacheur.finalize()
             secret_key = cipher.cle_secrete
             info_dechiffrage = cipher.get_info_dechiffrage(self.__certificats_chiffrage)
-            fuuid = info_dechiffrage['hachage_bytes']
+            fuuid = info_dechiffrage["hachage_bytes"]
             encrypted_size = cipher.taille_chiffree
 
             # Preparer transaction
@@ -392,108 +432,147 @@ class Uploader:
             debut_upload = datetime.datetime.now()
             # Move pointer back to beginning of file
             tmpfile.seek(0)
+            tmp_name = tmpfile.name
             while True:
                 position = tmpfile.tell()
                 if position == encrypted_size:
                     break  # Done
-                stream = file_iterator(self.__stop_event, tmpfile, UPLOAD_SPLIT_SIZE, upload)
-                url_put = f'{self.__connexion.filehost_url}/files/{fuuid}/{position}'
+                stream = file_iterator(
+                    self.__stop_event, tmpfile, UPLOAD_SPLIT_SIZE, upload
+                )
+                url_put = f"{self.__connexion.filehost_url}/files/{fuuid}/{position}"
                 response = self.__https_session.put(url_put, data=stream)
                 response.raise_for_status()
 
         fuuid_rechiffre = cipher.hachage
+        # Clean up temporary file
+        try:
+            os.unlink(tmp_name)
+        except Exception:
+            pass
         if fuuid != fuuid_rechiffre:
             raise Exception("Digest uploaded mismatches initial value (fuuid)")
-        cle_ca_chiffree = info_dechiffrage['cle']
-        cles_chiffrees = info_dechiffrage['cles']
+        cle_ca_chiffree = info_dechiffrage["cle"]
+        cles_chiffrees = info_dechiffrage["cles"]
         taille_chiffree = cipher.taille_chiffree
         taille_dechiffree = cipher.taille_dechiffree
 
         # Signer cle secrete pour GrosFichiers
-        signature_cle = SignatureDomaines.signer_domaines(secret_key, ['GrosFichiers'], cle_ca_chiffree)
+        signature_cle = SignatureDomaines.signer_domaines(
+            secret_key, ["GrosFichiers"], cle_ca_chiffree
+        )
 
         # Preparer et chiffrer la transaction
         data_dechiffre_transaction = {
-            'nom': upload.path.name,
-            'taille': taille,
-            'dateFichier': date_fichier,
-            'hachage_original': hachage_original,
+            "nom": upload.path.name,
+            "taille": taille,
+            "dateFichier": date_fichier,
+            "hachage_original": hachage_original,
         }
-        doc_chiffre = chiffrer_document(secret_key, signature_cle.get_cle_ref(), data_dechiffre_transaction)
+        doc_chiffre = chiffrer_document(
+            secret_key, signature_cle.get_cle_ref(), data_dechiffre_transaction
+        )
         transaction = {
-            'cle_id': signature_cle.get_cle_ref(),
-            'cuuid': upload.cuuid,
-            'format': 'mgs4',
-            'fuuid': fuuid,
-            'metadata': doc_chiffre,
-            'mimetype': upload.mimetype,
-            'nonce': info_dechiffrage['header'],
-            'taille': taille_dechiffree,
+            "cle_id": signature_cle.get_cle_ref(),
+            "cuuid": upload.cuuid,
+            "format": "mgs4",
+            "fuuid": fuuid,
+            "metadata": doc_chiffre,
+            "mimetype": upload.mimetype,
+            "nonce": info_dechiffrage["header"],
+            "taille": taille_dechiffree,
         }
 
         transaction_cle = {
-            'signature': signature_cle.to_dict(),
-            'cles': cles_chiffrees,
+            "signature": signature_cle.to_dict(),
+            "cles": cles_chiffrees,
         }
         transaction_cle, message_id = self.__connexion.formatteur.signer_message(
-            Constantes.KIND_COMMANDE, transaction_cle,
-            domaine="MaitreDesCles", action="ajouterCleDomaines", ajouter_chaine_certs=True)
-        self.__connexion.command(transaction, "GrosFichiers", "nouvelleVersion", attachments={'cle': transaction_cle})
+            Constantes.KIND_COMMANDE,
+            transaction_cle,
+            domaine="MaitreDesCles",
+            action="ajouterCleDomaines",
+            ajouter_chaine_certs=True,
+        )
+        self.__connexion.command(
+            transaction,
+            "GrosFichiers",
+            "nouvelleVersion",
+            attachments={"cle": transaction_cle},
+        )
 
-        url_confirmation = f'{self.__connexion.filehost_url}/files/{fuuid}'
+        url_confirmation = f"{self.__connexion.filehost_url}/files/{fuuid}"
         confirmation_response = self.__https_session.post(url_confirmation, timeout=300)
 
         if confirmation_response.status_code == 401:
             # Authenticate and retry
             self.__connexion.authenticate(self.__https_session)
-            confirmation_response = self.__https_session.post(url_confirmation, timeout=300)
+            confirmation_response = self.__https_session.post(
+                url_confirmation, timeout=300
+            )
 
         # Note: should handle codes 200, 201 and 202 differently later on (200=>DONE, 202=>ONGOING)
         confirmation_response.raise_for_status()
 
         fin_upload = datetime.datetime.now()
         duree_upload = fin_upload - debut_upload
-        self.__logger.debug("%s Fin upload %s (%d bytes), duree %s" % (fin_upload, upload.path.name, taille_chiffree, duree_upload))
+        self.__logger.debug(
+            "%s Fin upload %s (%d bytes), duree %s"
+            % (fin_upload, upload.path.name, taille_chiffree, duree_upload)
+        )
 
     def creer_collection(self, nom: str, cuuid_parent: Optional[str] = None) -> str:
-        metadata = {'nom': nom}
+        metadata = {"nom": nom}
         cipher, doc_chiffre = chiffrer_document_nouveau(self.__connexion.ca, metadata)
-        info_dechiffrage = cipher.get_info_dechiffrage(self.__connexion.get_certificats_chiffrage())
-        cle_ca = info_dechiffrage['cle']
-        cles_dechiffrage = info_dechiffrage['cles']
+        info_dechiffrage = cipher.get_info_dechiffrage(
+            self.__connexion.get_certificats_chiffrage()
+        )
+        cle_ca = info_dechiffrage["cle"]
+        cles_dechiffrage = info_dechiffrage["cles"]
 
         # Signer cle
-        signature_cle = SignatureDomaines.signer_domaines(cipher.cle_secrete, ['GrosFichiers'], cle_ca)
+        signature_cle = SignatureDomaines.signer_domaines(
+            cipher.cle_secrete, ["GrosFichiers"], cle_ca
+        )
 
         # Ajouter information de cle a metadata de la collection
-        doc_chiffre['cle_id'] = signature_cle.get_cle_ref()
-        doc_chiffre['format'] = 'mgs4'
-        doc_chiffre['verification'] = info_dechiffrage['hachage_bytes']
+        doc_chiffre["cle_id"] = signature_cle.get_cle_ref()
+        doc_chiffre["format"] = "mgs4"
+        doc_chiffre["verification"] = info_dechiffrage["hachage_bytes"]
 
-        transaction = {'metadata': doc_chiffre}
+        transaction = {"metadata": doc_chiffre}
 
         if cuuid_parent:
-            transaction['cuuid'] = cuuid_parent
+            transaction["cuuid"] = cuuid_parent
         else:
-            transaction['favoris'] = True
+            transaction["favoris"] = True
 
         commande_cle = {
-            'signature': signature_cle.to_dict(),
-            'cles': cles_dechiffrage,
+            "signature": signature_cle.to_dict(),
+            "cles": cles_dechiffrage,
         }
         commande_cle, message_id = self.__connexion.formatteur.signer_message(
-            Constantes.KIND_COMMANDE, commande_cle,
-            domaine="MaitreDesCles", action="ajouterCleDomaines", ajouter_chaine_certs=True)
+            Constantes.KIND_COMMANDE,
+            commande_cle,
+            domaine="MaitreDesCles",
+            action="ajouterCleDomaines",
+            ajouter_chaine_certs=True,
+        )
 
-        reponse = self.__connexion.command(transaction, "GrosFichiers", "nouvelleCollection", attachments={"cle": commande_cle})
+        reponse = self.__connexion.command(
+            transaction,
+            "GrosFichiers",
+            "nouvelleCollection",
+            attachments={"cle": commande_cle},
+        )
 
-        contenu = json.loads(reponse['contenu'])
-        cuuid = contenu['tuuid']
+        contenu = json.loads(reponse["contenu"])
+        cuuid = contenu["tuuid"]
 
         return cuuid
 
 
-UPLOAD_CHUNK_SIZE = 64*1024
+UPLOAD_CHUNK_SIZE = 64 * 1024
 
 
 # def file_iterator(stop_event: Event, fp, cipher, hacheur, maxsize, upload: UploadFichier):
@@ -515,6 +594,7 @@ UPLOAD_CHUNK_SIZE = 64*1024
 #             current_output_size += len(chunk)
 #             yield chunk
 
+
 def file_iterator(stop_event: Event, fp, maxsize, upload: UploadFichier):
     current_output_size = 0
     maxsize = maxsize - UPLOAD_CHUNK_SIZE
@@ -530,6 +610,7 @@ def file_iterator(stop_event: Event, fp, maxsize, upload: UploadFichier):
         if len(chunk) > 0:
             current_output_size += len(chunk)
             yield chunk
+
 
 def prepare_file(stop_event: Event, fp, fp_out, cipher, hacheur) -> int:
     current_output_size = 0
@@ -550,10 +631,9 @@ def prepare_file(stop_event: Event, fp, fp_out, cipher, hacheur) -> int:
 
 
 class UploaderFrame(tk.Frame):
-
     def __init__(self, stop_event, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
+        self.__logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
         self.__stop_event = stop_event
 
 

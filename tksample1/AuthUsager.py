@@ -1,34 +1,49 @@
 import asyncio
 import binascii
-import requests
-import logging
 import json
+import logging
 import os
 import pathlib
 import time
-
-from urllib import parse
-from typing import Optional, Union
-
-from threading import Thread, Event, Lock
 import tkinter as tk
+from threading import Event, Lock, Thread
+from typing import Optional, Union
+from urllib import parse
 
+import requests
 import socketio
-
-from millegrilles_messages.messages import Constantes
 from millegrilles_messages.certificats.Generes import CleCsrGenere
-from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat
+from millegrilles_messages.messages import Constantes
 from millegrilles_messages.messages.CleCertificat import CleCertificat
-from millegrilles_messages.messages.FormatteurMessages import SignateurTransactionSimple, FormatteurMessageMilleGrilles
-from millegrilles_messages.messages.ValidateurCertificats import ValidateurCertificatCache
+from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat
+from millegrilles_messages.messages.FormatteurMessages import (
+    FormatteurMessageMilleGrilles,
+    SignateurTransactionSimple,
+)
+from millegrilles_messages.messages.ValidateurCertificats import (
+    ValidateurCertificatCache,
+)
 from millegrilles_messages.messages.ValidateurMessage import ValidateurMessage
 
 
 class Authentification:
-
-    def __init__(self, stop_event: Event):
-        self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
+    def __init__(self, stop_event: Event, downdir: str = None, tmpdir: str = None):
+        self.__logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
         self.__stop_event = stop_event
+
+        # Set download directory
+        if downdir:
+            self.__path_download = pathlib.Path(downdir)
+        else:
+            home = pathlib.Path.home()
+            self.__path_download = pathlib.Path(home, "Downloads")
+
+        # Set temporary directory
+        if tmpdir:
+            self.__path_tmp = pathlib.Path(tmpdir)
+        else:
+            home = pathlib.Path.home()
+            self.__path_tmp = pathlib.Path(home, ".millegrilles", "tmp")
 
         self.thread = Thread(name="Authentification", target=self.run, daemon=False)
         self.__pret = Event()
@@ -46,17 +61,17 @@ class Authentification:
         self.__url_collection: Optional[parse.ParseResult] = None
 
         home = pathlib.Path.home()
-        path_millegrilles_folder = pathlib.Path(home, '.millegrilles')
+        path_millegrilles_folder = pathlib.Path(home, ".millegrilles")
         path_millegrilles_folder.mkdir(0o750, exist_ok=True)
-        self.__path_config_folder = pathlib.Path(path_millegrilles_folder, 'mgtransfertool')
+        self.__path_config_folder = pathlib.Path(
+            path_millegrilles_folder, "mgtransfertool"
+        )
         self.__path_config_folder.mkdir(0o700, exist_ok=True)
 
-        self.__path_cert = pathlib.Path(self.__path_config_folder, 'usager.cert')
-        self.__path_cle = pathlib.Path(self.__path_config_folder, 'usager.cle')
-        self.__path_ca = pathlib.Path(self.__path_config_folder, 'usager.ca')
-        self.__path_config = pathlib.Path(self.__path_config_folder, 'config.json')
-
-        self.__path_download = pathlib.Path(home, 'Downloads')
+        self.__path_cert = pathlib.Path(self.__path_config_folder, "usager.cert")
+        self.__path_cle = pathlib.Path(self.__path_config_folder, "usager.cle")
+        self.__path_ca = pathlib.Path(self.__path_config_folder, "usager.ca")
+        self.__path_config = pathlib.Path(self.__path_config_folder, "config.json")
 
         self.__formatteur: Optional[FormatteurMessageMilleGrilles] = None
         self.__validateur: Optional[ValidateurMessage] = None
@@ -96,9 +111,13 @@ class Authentification:
         return self.__path_download
 
     @property
+    def tmp_path(self):
+        return self.__path_tmp
+
+    @property
     def filehost_url(self):
-        url_external = self.__filehosts[self.__filehost_idx]['url_external']
-        if url_external.endswith('/'):
+        url_external = self.__filehosts[self.__filehost_idx]["url_external"]
+        if url_external.endswith("/"):
             url_external = url_external[0:-1]
         return f"{url_external}/filehost"
 
@@ -120,20 +139,20 @@ class Authentification:
     def charger_configuration(self):
         # Verifier si on a deja une connexion de configuree
         try:
-            with open(self.__path_config, 'rt') as fichier:
+            with open(self.__path_config, "rt") as fichier:
                 config = json.load(fichier)
         except FileNotFoundError:
             # Aucune configuration presente
             return False
 
-        nom_usager = config['nom_usager']
-        url_fiche_serveur = config['url_fiche_serveur']
+        nom_usager = config["nom_usager"]
+        url_fiche_serveur = config["url_fiche_serveur"]
 
         self.nom_usager = nom_usager
         self.url_fiche_serveur = parse.urlparse(url_fiche_serveur)
 
         try:
-            self.__path_download = config['download_path']
+            self.__path_download = config["download_path"]
         except KeyError:
             pass
 
@@ -141,10 +160,10 @@ class Authentification:
 
     def sauvegarder_configuration(self):
         config = {
-            'nom_usager': self.nom_usager,
-            'url_fiche_serveur': self.url_fiche_serveur.geturl()
+            "nom_usager": self.nom_usager,
+            "url_fiche_serveur": self.url_fiche_serveur.geturl(),
         }
-        with open(self.__path_config, 'wt') as fichier:
+        with open(self.__path_config, "wt") as fichier:
             json.dump(config, fichier)
 
     def effacer_usager(self):
@@ -155,7 +174,12 @@ class Authentification:
         self.__cle_csr_genere = None
         self._cle_certificat = None
 
-        fichiers = [self.__path_cle, self.__path_cert, self.__path_ca, self.__path_config]
+        fichiers = [
+            self.__path_cle,
+            self.__path_cert,
+            self.__path_ca,
+            self.__path_config,
+        ]
         for fichier in fichiers:
             try:
                 os.unlink(fichier)
@@ -169,18 +193,18 @@ class Authentification:
         url_serveur = url_serveur or self.url_fiche_serveur
 
         if nom_usager is None or url_serveur is None:
-            raise ValueError('Il faut fournir nom_usager et url_serveur')
+            raise ValueError("Il faut fournir nom_usager et url_serveur")
 
         self.__logger.info("Charger usager %s avec url %s" % (nom_usager, url_serveur))
         if self.__pret.is_set():
-            raise Exception('Auth en cours ou deja authentifie')
+            raise Exception("Auth en cours ou deja authentifie")
 
         # Preparer URL de la fiche
         url_parsed = parse.urlparse(url_serveur, scheme="https")
         if url_parsed.hostname is None:
-            url_parsed = parse.urlparse(f'https://{url_parsed.path}/fiche.json')
-        elif url_parsed.path != '/fiche.json':
-            url_parsed = parse.urlparse(f'https://{url_parsed.hostname}/fiche.json')
+            url_parsed = parse.urlparse(f"https://{url_parsed.path}/fiche.json")
+        elif url_parsed.path != "/fiche.json":
+            url_parsed = parse.urlparse(f"https://{url_parsed.hostname}/fiche.json")
 
         self.url_fiche_serveur = url_parsed
 
@@ -192,16 +216,21 @@ class Authentification:
             if cle_certificat.cle_correspondent():
                 common_name = cle_certificat.enveloppe.subject_common_name
                 if common_name == nom_usager:
-                    if cle_certificat.enveloppe.calculer_expiration()['expire'] is False:
-
+                    if (
+                        cle_certificat.enveloppe.calculer_expiration()["expire"]
+                        is False
+                    ):
                         # Verifier que l'instance du certificat correspond au systeme (meme IDMG)
                         url_fiche = self.url_fiche_serveur.geturl()
                         reponse = requests.get(url_fiche, verify=False)
                         reponse_json = reponse.json()
-                        contenu = json.loads(reponse_json['contenu'])
+                        contenu = json.loads(reponse_json["contenu"])
                         idmg = cle_certificat.enveloppe.idmg
-                        if contenu['idmg'] == idmg:
-                            self.__logger.debug("On a un certificat valide pour l'usager %s sur la MilleGrille %s" % (nom_usager, idmg))
+                        if contenu["idmg"] == idmg:
+                            self.__logger.debug(
+                                "On a un certificat valide pour l'usager %s sur la MilleGrille %s"
+                                % (nom_usager, idmg)
+                            )
                             self._cle_certificat = cle_certificat
                             self.__pret.set()
                             return
@@ -249,7 +278,9 @@ class Authentification:
                         self.connecter(url_collection)
                         break
                     except Exception as e:
-                        self.__logger.exception("Echec authentification, essayer prochain serveur")
+                        self.__logger.exception(
+                            "Echec authentification, essayer prochain serveur"
+                        )
                         if self.__sio:
                             self.__sio.disconnect()
                         self.__sio = None
@@ -267,27 +298,29 @@ class Authentification:
             self.__logger.info("Fin thread authentification")
             if self.__pret.is_set() is True and self.__stop_event.is_set() is False:
                 self.__stop_event.set()
-                raise Exception('Authentification thread crash')
+                raise Exception("Authentification thread crash")
 
     def parse_fiche(self) -> Union[list, parse.ParseResult]:
         url_fiche = self.url_fiche_serveur.geturl()
         reponse = requests.get(url_fiche, verify=False)
         reponse_json = reponse.json()
-        contenu = json.loads(reponse_json['contenu'])
+        contenu = json.loads(reponse_json["contenu"])
 
         # url_app = parse.urlparse('https://bureau1.maple.maceroc.com:443/millegrilles')
         # return [url_app]
 
-        instances = contenu['instances']
+        instances = contenu["instances"]
         instances_collection = list()
         for instance_id, instance in instances.items():
             # app_path = app_instance['pathname']
             # instance = instances[instance_id]
             app_path = "/millegrilles"
             # port_https = instance['ports']['https']
-            port_tls = instance['ports']['https'] + 1
-            for domaine_instance in instance['domaines']:
-                url_app = parse.urlparse(f'https://{domaine_instance}:{port_tls}{app_path}')
+            port_tls = instance["ports"]["https"] + 1
+            for domaine_instance in instance["domaines"]:
+                url_app = parse.urlparse(
+                    f"https://{domaine_instance}:{port_tls}{app_path}"
+                )
                 instances_collection.append(url_app)
 
                 if self.url_fiche_serveur.hostname == domaine_instance:
@@ -304,7 +337,7 @@ class Authentification:
         self.__authenticated = False
         self.connecter_socketio()
 
-        @self.__sio.on('disconnect')
+        @self.__sio.on("disconnect")
         def on_disconnect():
             if self.__sio is not None:
                 while self.__stop_event.is_set() is False:
@@ -323,44 +356,65 @@ class Authentification:
                         self.__logger.exception("Erreur reconnexion")
 
         filehost_response = self.request({}, "CoreTopologie", "getFilehosts")
-        filehost_content = json.loads(filehost_response['contenu'])
-        if filehost_content['ok'] is not True:
-            raise Exception(f'Error calling requete.CoreTopologie.getFilehosts: {filehost_content.get("err")}')
-        filehosts = [f for f in filehost_content['list'] if f.get('url_external') is not None and f['deleted'] is False]
+        filehost_content = json.loads(filehost_response["contenu"])
+        if filehost_content["ok"] is not True:
+            raise Exception(
+                f"Error calling requete.CoreTopologie.getFilehosts: {filehost_content.get('err')}"
+            )
+        filehosts = [
+            f
+            for f in filehost_content["list"]
+            if f.get("url_external") is not None and f["deleted"] is False
+        ]
         self.__filehosts = filehosts
         self.__logger.info(f"Filehost url: {self.filehost_url}")
 
     def socketio_requete_certificat(self, url: parse.ParseResult):
-        connexion_socketio = f'https://{url.hostname}'
+        connexion_socketio = f"https://{url.hostname}"
 
         with requests.Session() as http_session:
             http_session.verify = False
             sio = socketio.Client(http_session=http_session)
-            sio.connect(connexion_socketio, socketio_path='/millegrilles/socket.io')
+            sio.connect(connexion_socketio, socketio_path="/millegrilles/socket.io")
             try:
                 # Emettre CSR et attendre activation
                 csr_pem = self.__cle_csr_genere.get_pem_csr()
-                cle_publique = binascii.hexlify(self.__cle_csr_genere.cle_publique).decode('utf-8')
+                cle_publique = binascii.hexlify(
+                    self.__cle_csr_genere.cle_publique
+                ).decode("utf-8")
                 code_activation = cle_publique[-8:]
-                code_activation_ecran = '-'.join([code_activation[0:4], code_activation[4:]])
-                self.__logger.debug("Demande enregistrement usager %s avec code %s" % (self.nom_usager, code_activation_ecran))
+                code_activation_ecran = "-".join(
+                    [code_activation[0:4], code_activation[4:]]
+                )
+                self.__logger.debug(
+                    "Demande enregistrement usager %s avec code %s"
+                    % (self.nom_usager, code_activation_ecran)
+                )
                 self.auth_frame.set_etat(code_activation=code_activation_ecran)
 
-                commande_ajouter_csr = {'nomUsager': self.nom_usager, 'csr': csr_pem}
+                commande_ajouter_csr = {"nomUsager": self.nom_usager, "csr": csr_pem}
                 # sio.emit('ecouterEvenementsActivationFingerprint', {'fingerprintPk': cle_publique}, callback=self.callback_activation)
                 # sio.emit('ajouterCsrRecovery', commande_ajouter_csr, callback=self.callback_csr)
 
                 # New approach
-                sio.emit('authentication_subscribe_activation', {'publicKey': cle_publique}, callback=self.callback_activation)
-                sio.emit('authentication_addrecoverycsr', commande_ajouter_csr, callback=self.callback_csr)
+                sio.emit(
+                    "authentication_subscribe_activation",
+                    {"publicKey": cle_publique},
+                    callback=self.callback_activation,
+                )
+                sio.emit(
+                    "authentication_addrecoverycsr",
+                    commande_ajouter_csr,
+                    callback=self.callback_csr,
+                )
 
                 event_certificat = Event()
 
-                @sio.on('*')
+                @sio.on("*")
                 def message(event, data):
-                    self.__logger.debug('message socket.io : %s\n%s' % (event, data))
-                    action = event.split('.')[-1]
-                    if action == 'activationFingerprintPk':
+                    self.__logger.debug("message socket.io : %s\n%s" % (event, data))
+                    action = event.split(".")[-1]
+                    if action == "activationFingerprintPk":
                         self.recevoir_certificat(data)
                         event_certificat.set()
 
@@ -375,28 +429,28 @@ class Authentification:
                 raise e
 
     def recevoir_certificat(self, data):
-        message = data['message']
-        contenu = json.loads(message['contenu'])
-        certificat = contenu['certificat']
+        message = data["message"]
+        contenu = json.loads(message["contenu"])
+        certificat = contenu["certificat"]
         ca = certificat[-1]
         cle_pem = self.__cle_csr_genere.get_pem_cle()
-        certificat = '\n'.join(certificat[0:2])
+        certificat = "\n".join(certificat[0:2])
 
         # Sauvegarder le nouvel usager/url serveur
         self.sauvegarder_configuration()
 
         # Sauvegarder certificats
-        with open(self.__path_cert, 'wt') as fichier:
+        with open(self.__path_cert, "wt") as fichier:
             fichier.write(certificat)
-        with open(self.__path_cle, 'wt') as fichier:
+        with open(self.__path_cle, "wt") as fichier:
             fichier.write(cle_pem)
         self.__path_cle.chmod(0o600)
-        with open(self.__path_ca, 'wt') as fichier:
+        with open(self.__path_ca, "wt") as fichier:
             fichier.write(ca)
 
         clecertificat = CleCertificat.from_pems(cle_pem, certificat)
         if clecertificat.cle_correspondent() is False:
-            raise Exception('erreur cle/certificat ne correspondent pas')
+            raise Exception("erreur cle/certificat ne correspondent pas")
 
         self._cle_certificat = clecertificat
 
@@ -409,7 +463,6 @@ class Authentification:
     def entretien_authentification(self):
         self.__entretien_event.clear()
         while self.__entretien_event.is_set() is False:
-
             try:
                 self.__entretien_event.wait(timeout=30)
             except TimeoutError:
@@ -426,7 +479,7 @@ class Authentification:
 
     def authentifier_socketio(self, sio):
         # Recuperer un challenge d'authentification a signer avec le certificat
-        reponse_generer = sio.call('genererChallengeCertificat')
+        reponse_generer = sio.call("genererChallengeCertificat")
         self.__logger.debug("Reponse generer : %s" % reponse_generer)
 
         # Effectuer authentification via socket.io
@@ -440,33 +493,45 @@ class Authentification:
         #     {attachements: { apiMapping }, eventName: 'authentication_authenticate', role: 'private_webapi'}
         # );
 
-        requete_auth = reponse_generer['challengeCertificat']
-        requete_upgrade, message_id = self.__formatteur.signer_message(Constantes.KIND_COMMANDE, requete_auth, 'authentication', True, 'authenticate')
-        requete_upgrade['attachements'] = {'apiMapping': load_signed_api()}
+        requete_auth = reponse_generer["challengeCertificat"]
+        requete_upgrade, message_id = self.__formatteur.signer_message(
+            Constantes.KIND_COMMANDE,
+            requete_auth,
+            "authentication",
+            True,
+            "authenticate",
+        )
+        requete_upgrade["attachements"] = {"apiMapping": load_signed_api()}
 
         self.__logger.debug("Authenticate with socket.io")
-        reponse_upgrade = sio.call('authentication_authenticate', requete_upgrade)
+        reponse_upgrade = sio.call("authentication_authenticate", requete_upgrade)
 
         # Verifier reponse
         self.__logger.debug("Connecte, upgrade OK. Data:\n%s" % reponse_upgrade)
         enveloppe = asyncio.run(self.__validateur.verifier(reponse_upgrade))
-        roles_server = {'protected_webapi', 'private_webapi'}
-        if len(roles_server.intersection(enveloppe.get_roles)) == 0 or Constantes.SECURITE_PRIVE not in enveloppe.get_exchanges:
+        roles_server = {"protected_webapi", "private_webapi"}
+        if (
+            len(roles_server.intersection(enveloppe.get_roles)) == 0
+            or Constantes.SECURITE_PRIVE not in enveloppe.get_exchanges
+        ):
             raise Exception(
-                "Erreur upgrade socket.io : mauvais role/securite cote serveur. Roles: %s, securite: %s" % (
-                    enveloppe.get_roles, enveloppe.get_exchanges))
+                "Erreur upgrade socket.io : mauvais role/securite cote serveur. Roles: %s, securite: %s"
+                % (enveloppe.get_roles, enveloppe.get_exchanges)
+            )
 
-        contenu = json.loads(reponse_upgrade['contenu'])
-        if contenu.get('ok') is not True:
-            self.__logger.error("Erreur upgrade socket.io : %s" % reponse_upgrade.get('err'))
-            raise Exception('Erreur auth connexion socket.io')
+        contenu = json.loads(reponse_upgrade["contenu"])
+        if contenu.get("ok") is not True:
+            self.__logger.error(
+                "Erreur upgrade socket.io : %s" % reponse_upgrade.get("err")
+            )
+            raise Exception("Erreur auth connexion socket.io")
 
         self.__authenticated = True
 
     def connecter_socketio(self):
         # Reconnecter socketio par https avec client ssl
         url = self.__url_collection
-        connexion_socketio = f'https://{url.hostname}:444'
+        connexion_socketio = f"https://{url.hostname}:444"
 
         http_session = self.get_https_session()
 
@@ -476,9 +541,15 @@ class Authentification:
             # sio = socketio.Client(http_session=http_session, engineio_logger=True, logger=True)
             sio = socketio.Client(http_session=http_session)
 
-        path_app = f'{url.path}/socket.io/'
-        self.__logger.debug("Connecter socket.io %s path %s" % (connexion_socketio, path_app))
-        sio.connect(connexion_socketio, socketio_path=path_app, transports=['polling', 'websocket'])
+        path_app = f"{url.path}/socket.io/"
+        self.__logger.debug(
+            "Connecter socket.io %s path %s" % (connexion_socketio, path_app)
+        )
+        sio.connect(
+            connexion_socketio,
+            socketio_path=path_app,
+            transports=["polling", "websocket"],
+        )
 
         self.__sio = sio
 
@@ -507,11 +578,11 @@ class Authentification:
         self.__validateur = ValidateurMessage(validateur_certificats)
 
     def get_certificats_chiffrage(self):
-        reponse = self.call('getCertificatsMaitredescles')
+        reponse = self.call("getCertificatsMaitredescles")
 
         certs = []
         for c in reponse:
-            cert_pem = '\n'.join(c)
+            cert_pem = "\n".join(c)
             cert = EnveloppeCertificat.from_pem(cert_pem)
             certs.append(cert)
 
@@ -523,26 +594,36 @@ class Authentification:
     def __call_with_message(self, content: dict, timeout):
         if not self.__authenticated:
             raise NotAuthenticatedError()
-        return self.call('route_message', content, timeout=timeout)
+        return self.call("route_message", content, timeout=timeout)
 
     def request(self, body: dict, domain: str, action: str, timeout: int = 15):
         content, message_id = self.formatteur.signer_message(
-            Constantes.KIND_REQUETE, body, domain, True, action)
+            Constantes.KIND_REQUETE, body, domain, True, action
+        )
         return self.__call_with_message(content, timeout)
 
-    def command(self, body: dict, domain: str, action: str, timeout: int = 15, attachments: Optional[dict] = None):
+    def command(
+        self,
+        body: dict,
+        domain: str,
+        action: str,
+        timeout: int = 15,
+        attachments: Optional[dict] = None,
+    ):
         content, message_id = self.formatteur.signer_message(
-            Constantes.KIND_COMMANDE, body, domain, True, action)
+            Constantes.KIND_COMMANDE, body, domain, True, action
+        )
         if attachments:
-            content['attachements'] = attachments
+            content["attachements"] = attachments
         return self.__call_with_message(content, timeout)
 
     def authenticate(self, http_session: requests.Session):
         # Authenticate
         auth_message, message_id = self.formatteur.signer_message(
-            Constantes.KIND_COMMANDE, {}, 'filehost', True, 'authenticate')
+            Constantes.KIND_COMMANDE, {}, "filehost", True, "authenticate"
+        )
         auth_message["millegrille"] = self.formatteur.enveloppe_ca.certificat_pem
-        url_auth = f'{self.filehost_url}/authenticate'
+        url_auth = f"{self.filehost_url}/authenticate"
         auth_response = http_session.post(url_auth, json=auth_message)
         auth_response.raise_for_status()
 
@@ -552,20 +633,22 @@ def generer_csr(nom_usager: str) -> CleCsrGenere:
 
 
 class AuthFrame(tk.Frame):
-
     def __init__(self, auth, *args, **kwargs):
-        self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
+        self.__logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
         super().__init__(*args, **kwargs)
         self.auth = auth
         self.label_nomusager = tk.Label(master=self, text="Nom usager")
         self.entry_nomusager = tk.Entry(master=self, width=20)
         self.label_url_serveur = tk.Label(master=self, text="URL serveur")
         self.entry_serveur = tk.Entry(master=self, width=60)
-        self.button_connecter = tk.Button(master=self, text="Connecter", command=self.btn_connecter_usager)
-        self.button_deconnecter = tk.Button(master=self, text="Deconnecter",
-                                            command=self.btn_deconnecter_usager)
+        self.button_connecter = tk.Button(
+            master=self, text="Connecter", command=self.btn_connecter_usager
+        )
+        self.button_deconnecter = tk.Button(
+            master=self, text="Deconnecter", command=self.btn_deconnecter_usager
+        )
 
-        self.etat = tk.StringVar(master=self, value='Deconnecte')
+        self.etat = tk.StringVar(master=self, value="Deconnecte")
         self.__etat_label = tk.Label(master=self, textvariable=self.etat)
 
     def pack(self):
@@ -590,14 +673,14 @@ class AuthFrame(tk.Frame):
 
     def set_etat(self, connecte=False, code_activation=None):
         if code_activation:
-            self.etat.set('Code activation : %s' % code_activation)
+            self.etat.set("Code activation : %s" % code_activation)
             return
 
         try:
             if connecte:
-                self.etat.set('Connecte')
+                self.etat.set("Connecte")
             else:
-                self.etat.set('Deconnecte')
+                self.etat.set("Deconnecte")
         except RuntimeError:
             pass  # Fermeture
 
@@ -613,10 +696,12 @@ class AuthFrame(tk.Frame):
         self.set_etat(connecte=False)
         self.__logger.info("Usager deconnecte, configuration supprimee")
 
+
 def load_signed_api():
     import tksample1
+
     path_module = pathlib.Path(os.path.abspath(tksample1.__file__))
-    path_json = pathlib.Path(path_module.parent, 'apiMapping.signed.json')
+    path_json = pathlib.Path(path_module.parent, "apiMapping.signed.json")
     with open(path_json) as fichier:
         return json.load(fichier)
 
