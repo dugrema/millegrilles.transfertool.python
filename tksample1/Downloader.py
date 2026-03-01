@@ -243,8 +243,6 @@ class Downloader:
             https_session.cert = None
             self.__https_session = https_session
 
-        url_collections = self.__connexion.url_collections
-        # url_fichier = f'https://{url_collections.hostname}:443/filehost/files/{item.fuuid}'
         url_fichier = f'{self.__connexion.filehost_url}/files/{item.fuuid}'
 
         path_reception = pathlib.Path(item.path_destination, item.nom)
@@ -256,7 +254,7 @@ class Downloader:
         chunks_done = 0
         try:
             with open(path_reception_work, 'xb') as output:
-                response = self.__https_session.get(url_fichier)
+                response = self.__https_session.get(url_fichier, stream=True)
                 try:
                     response.raise_for_status()
                 except HTTPError as e:
@@ -271,7 +269,7 @@ class Downloader:
                         #                 messageStruct.MessageKind.Command, {}, {domaine: 'filehost', action: 'authenticate'});
                         #             authMessage.millegrille = caPem;
 
-                        response = self.__https_session.get(url_fichier)
+                        response = self.__https_session.get(url_fichier, stream=True)
                         response.raise_for_status()
                     else:
                         raise e
