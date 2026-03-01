@@ -64,27 +64,21 @@ class Navigation:
                 cuuid = parent.get("tuuid")
             else:
                 cuuid = None
-            self.__charger_cuuid(cuuid)
-            # Update breadcrumb display after navigation
-            if self.nav_frame is not None:
-                breadcrumb_path = (
-                    pathlib.Path(
-                        "Favoris", *[p["metadata"]["nom"] for p in self.breadcrumb]
-                    )
-                    if len(self.breadcrumb) > 0
-                    else pathlib.Path("Favoris")
-                )
-                self.nav_frame.set_breadcrumb(str(breadcrumb_path))
+            # Use background thread pattern like changer_cuuid()
+            self.__cuuid_a_charger = cuuid
+            self.__event_dirty.set()
+            # Background thread will process navigation and update breadcrumb display
 
     def changer_cuuid(self, cuuid):
         """Wrapper to change the current directory cuuid"""
-        self.__charger_cuuid(cuuid)
-        # Update UI
-        if self.nav_frame is not None:
-            self.nav_frame.afficher_repertoire(self.__repertoire)  # type: ignore
+        self.__cuuid_a_charger = cuuid
+        self.__event_dirty.set()
+        # The background thread will process this and update the UI
 
     def ajouter_download(self, tuuid):
         """Wrapper to add a download"""
+        if self.__repertoire is None:
+            return
         tuuid_node = [
             f for f in self.__repertoire.fichiers if f["tuuid"] == tuuid
         ].pop()
@@ -159,14 +153,23 @@ class Navigation:
         self.__cuuid_a_charger = None
         self.__set_erreur(None)
 
+        # Disable treeview during navigation by clearing content
+        if self.nav_frame is not None:
+            self.nav_frame.clear_treeview()  # type: ignore
+
         if cuuid is None:
             # Navigate to root level - clear breadcrumb
             self.breadcrumb.clear()
-            self.__repertoire = sync_collection(self.connexion)
-            breadcrumb_path = pathlib.Path("Favoris")
-            if self.nav_frame is not None:
-                self.nav_frame.afficher_repertoire(self.__repertoire)  # type: ignore
-                self.nav_frame.set_breadcrumb(str(breadcrumb_path))  # type: ignore
+            try:
+                self.__repertoire = sync_collection(self.connexion)
+                if self.nav_frame is not None:
+                    self.nav_frame.afficher_repertoire(self.__repertoire)  # type: ignore
+                    # Update breadcrumb display after loading
+                    breadcrumb_path = pathlib.Path("Favoris")
+                    self.nav_frame.set_breadcrumb(str(breadcrumb_path))  # type: ignore
+            except Exception as e:
+                self.__logger.exception("Erreur navigation root")
+                self.__set_erreur(e)
         else:
             try:
                 if self.breadcrumb[-1]["tuuid"] != cuuid:
@@ -182,17 +185,24 @@ class Navigation:
                     c for c in self.__repertoire.fichiers if c["tuuid"] == cuuid
                 ].pop()
                 self.breadcrumb.append(repertoire)
-                breadcrumb_path = [p["metadata"]["nom"] for p in self.breadcrumb]
-                self.breadcrumb_path = pathlib.Path("favoris", *breadcrumb_path)
-                if self.nav_frame is not None:
-                    # Ensure proper path format display
-                    self.nav_frame.set_breadcrumb(str(self.breadcrumb_path))  # type: ignore
 
             # Recuperer contenu du repertoire
-            self.__repertoire = sync_collection(self.connexion, cuuid)
-
-            if self.nav_frame is not None:
-                self.nav_frame.afficher_repertoire(self.__repertoire)  # type: ignore
+            try:
+                self.__repertoire = sync_collection(self.connexion, cuuid)
+                if self.nav_frame is not None:
+                    self.nav_frame.afficher_repertoire(self.__repertoire)  # type: ignore
+                    # Update breadcrumb display after loading (works for both navigation up and down)
+                    breadcrumb_path = (
+                        pathlib.Path(
+                            "Favoris", *[p["metadata"]["nom"] for p in self.breadcrumb]
+                        )
+                        if len(self.breadcrumb) > 0
+                        else pathlib.Path("Favoris")
+                    )
+                    self.nav_frame.set_breadcrumb(str(breadcrumb_path))  # type: ignore
+            except Exception as e:
+                self.__logger.exception("Erreur navigation repertoire")
+                self.__set_erreur(e)
 
 
 class NavigationFrame(tk.Frame):
@@ -370,6 +380,16 @@ class NavigationFrame(tk.Frame):
             self.dirlist.insert(
                 "", "end", iid="Erreur", text="Erreur chargement, Refresh"
             )
+
+    def clear_treeview(self):
+        """Clear treeview content during navigation (thread-safe)"""
+        self.after(0, self._clear_treeview_internal)
+
+    def _clear_treeview_internal(self):
+        """Internal method to clear treeview on main thread"""
+        # Clear all items from treeview
+        for item in self.dirlist.get_children():
+            self.dirlist.delete(item)
 
     def afficher_repertoire(self, repertoire):
         self.__repertoire = repertoire
