@@ -85,7 +85,7 @@ class Window(tk.Tk):
         self.geometry("800x600")
 
         self.auth: Authentification = auth
-        self.auth_frame: Optional[AuthFrame] = None
+        self.auth_frame: Optional[AuthFrame] = None  # type: ignore
 
         self.__frame_notebook = ttk.Notebook(self)
 
@@ -107,9 +107,9 @@ class Window(tk.Tk):
 
         # Wiring du frame dans Authentification - permet changer affichage
         self.auth_frame = self.__frame_auth
-        self.auth.auth_frame = self.__frame_auth
-        navigation.nav_frame = self.__frame_navigation
-        transfer_handler.transfer_frame = self.__frame_transfert
+        self.auth.auth_frame = self.__frame_auth  # type: ignore
+        navigation.nav_frame = self.__frame_navigation  # type: ignore
+        transfer_handler.transfer_frame = self.__frame_transfert  # type: ignore
 
 
 def parse_arguments():

@@ -53,6 +53,61 @@ class Navigation:
     def quit(self):
         self.__event_dirty.set()
 
+    def naviguer_up(self):
+        """Navigate to parent directory in the breadcrumb"""
+        if len(self.breadcrumb) > 0:
+            self.breadcrumb.pop()
+            # Reload the parent directory
+            if len(self.breadcrumb) > 0:
+                parent = self.breadcrumb[-1]
+                cuuid = parent.get("tuuid")
+            else:
+                cuuid = None
+            self.__charger_cuuid(cuuid)
+            # Update breadcrumb display after navigation
+            if self.nav_frame is not None:
+                breadcrumb_path = (
+                    pathlib.Path(
+                        "Favoris", *[p["metadata"]["nom"] for p in self.breadcrumb]
+                    )
+                    if len(self.breadcrumb) > 0
+                    else pathlib.Path("Favoris")
+                )
+                self.nav_frame.set_breadcrumb(str(breadcrumb_path))
+
+    def changer_cuuid(self, cuuid):
+        """Wrapper to change the current directory cuuid"""
+        self.__charger_cuuid(cuuid)
+        # Update UI
+        if self.nav_frame is not None:
+            self.nav_frame.afficher_repertoire(self.__repertoire)  # type: ignore
+
+    def ajouter_download(self, tuuid):
+        """Wrapper to add a download"""
+        self.transfer_handler.ajouter_download_fichier(tuuid)
+
+    def upload_fichier(self, fichier):
+        """Wrapper to upload a file"""
+        # Get current directory cuuid (last in breadcrumb or None)
+        cuuid_parent = None
+        if len(self.breadcrumb) > 0:
+            cuuid_parent = self.breadcrumb[-1].get("tuuid")
+        self.transfer_handler.ajouter_upload(cuuid_parent, fichier)
+
+    def upload_directory(self, path_dir):
+        """Wrapper to upload a directory"""
+        cuuid_parent = None
+        if len(self.breadcrumb) > 0:
+            cuuid_parent = self.breadcrumb[-1].get("tuuid")
+        self.transfer_handler.ajouter_upload(cuuid_parent, path_dir)
+
+    def creer_collection(self, nom):
+        """Wrapper to create a collection"""
+        cuuid_parent = None
+        if len(self.breadcrumb) > 0:
+            cuuid_parent = self.breadcrumb[-1].get("tuuid")
+        return self.transfer_handler.creer_collection(nom, cuuid_parent)
+
     def __set_erreur(self, erreur: Optional[Exception]):
         self.__en_erreur = erreur
         if erreur is not None:
@@ -87,8 +142,13 @@ class Navigation:
         self.__set_erreur(None)
 
         if cuuid is None:
+            # Navigate to root level - clear breadcrumb
+            self.breadcrumb.clear()
             self.__repertoire = sync_collection(self.connexion)
-            self.nav_frame.afficher_repertoire(self.__repertoire)  # type: ignore
+            breadcrumb_path = pathlib.Path("Favoris")
+            if self.nav_frame is not None:
+                self.nav_frame.afficher_repertoire(self.__repertoire)  # type: ignore
+                self.nav_frame.set_breadcrumb(str(breadcrumb_path))  # type: ignore
         else:
             try:
                 if self.breadcrumb[-1]["tuuid"] != cuuid:
@@ -106,12 +166,15 @@ class Navigation:
                 self.breadcrumb.append(repertoire)
                 breadcrumb_path = [p["metadata"]["nom"] for p in self.breadcrumb]
                 self.breadcrumb_path = pathlib.Path("favoris", *breadcrumb_path)
-                self.nav_frame.set_breadcrumb(breadcrumb_path)  # type: ignore
+                if self.nav_frame is not None:
+                    # Ensure proper path format display
+                    self.nav_frame.set_breadcrumb(str(self.breadcrumb_path))  # type: ignore
 
             # Recuperer contenu du repertoire
             self.__repertoire = sync_collection(self.connexion, cuuid)
 
-            self.nav_frame.afficher_repertoire(self.__repertoire)  # type: ignore
+            if self.nav_frame is not None:
+                self.nav_frame.afficher_repertoire(self.__repertoire)  # type: ignore
 
 
 class NavigationFrame(tk.Frame):
@@ -211,6 +274,7 @@ class NavigationFrame(tk.Frame):
         self.dirlist.configure(xscrollcommand=verscrlbar.set)
 
         self.grid()
+        self.widget_bind()
 
     def grid(self, *args, **kwargs):
         self.__frame_actions.grid(row=0, column=0)
@@ -253,8 +317,11 @@ class NavigationFrame(tk.Frame):
         )
         self.__navigation.creer_collection(nom_collection)
 
-    def set_breadcrumb(self, breadcrumb: pathlib.Path):
-        self.breadcrumb.set(str(breadcrumb))
+    def set_breadcrumb(self, breadcrumb):
+        # breadcrumb can be either pathlib.Path or str
+        if isinstance(breadcrumb, pathlib.Path):
+            breadcrumb = str(breadcrumb)
+        self.breadcrumb.set(breadcrumb)
 
     def set_erreur(self, erreur: Optional[Exception]):
         children = self.dirlist.get_children()

@@ -13,9 +13,9 @@ class TransferHandler:
     def __init__(self, stop_event, connexion: Authentification):
         self.__logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
         self.__stop_event = stop_event
-        self.frame = None
+        self.frame: Optional[tk.Frame] = None  # type: ignore
         self.connexion = connexion
-        self.transfer_frame = None
+        self.transfer_frame = None  # type: ignore[assignment]
 
         self.downloader = Downloader(self.__stop_event, connexion)
         self.uploader = Uploader(self.__stop_event, connexion)
@@ -54,7 +54,7 @@ class TransferHandler:
     def ajouter_download_repertoire(self, repertoire, destination=None):
         return self.downloader.ajouter_download_repertoire(repertoire, destination)
 
-    def ajouter_upload(self, cuuid_parent: str, path_upload: str) -> UploadFichier:
+    def ajouter_upload(self, cuuid_parent: str, path_upload: str):
         return self.uploader.ajouter_upload(cuuid_parent, path_upload)
 
     def creer_collection(self, nom: str, cuuid_parent: Optional[str] = None) -> str:
@@ -68,18 +68,18 @@ class TransferHandler:
         while self.__stop_event.is_set() is False:
             self.__transfer_dirty.clear()
             try:
-                if self.transfer_frame is not None:
+                if self.transfer_frame is not None:  # type: ignore
                     # Update status
                     # status_download = 'Download inactif'
                     status_download, download_en_cours, q_download = (
                         self.downloader.download_status()
                     )
-                    self.transfer_frame.download_status_var.set(status_download)
+                    self.transfer_frame.download_status_var.set(status_download)  # type: ignore
 
                     status_upload, upload_en_cours, q_upload = (
                         self.uploader.upload_status()
                     )
-                    self.transfer_frame.upload_status_var.set(status_upload)
+                    self.transfer_frame.upload_status_var.set(status_upload)  # type: ignore
                     if upload_comp is not upload_en_cours:
                         upload_comp = upload_en_cours
                         self.__upload_dirty = True
@@ -90,7 +90,7 @@ class TransferHandler:
                     if self.__upload_dirty:
                         self.__upload_dirty = False
                         # Refresh liste uploads
-                        self.transfer_frame.refresh_upload(upload_en_cours, q_upload)
+                        self.transfer_frame.refresh_upload(upload_en_cours, q_upload)  # type: ignore
 
                     if download_comp is not download_en_cours:
                         download_comp = download_en_cours
@@ -102,7 +102,7 @@ class TransferHandler:
                     if self.__download_dirty:
                         self.__download_dirty = False
                         # Refresh liste downloads
-                        self.transfer_frame.refresh_download(
+                        self.transfer_frame.refresh_download(  # type: ignore
                             download_en_cours, q_download
                         )
             except Exception:
