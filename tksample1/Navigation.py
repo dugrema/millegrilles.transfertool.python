@@ -123,7 +123,8 @@ class Navigation:
         self.__en_erreur = erreur
         if erreur is not None:
             # Ajuster l'ecran
-            self.nav_frame.set_erreur(erreur)  # type: ignore
+            if self.nav_frame is not None:
+                self.nav_frame.set_erreur(erreur)  # type: ignore
 
     def run(self):
         self.__event_dirty.set()
@@ -194,7 +195,8 @@ class Navigation:
                     # Update breadcrumb display after loading (works for both navigation up and down)
                     breadcrumb_path = (
                         pathlib.Path(
-                            "Favoris", *[p["metadata"]["nom"] for p in self.breadcrumb]
+                            "Favoris",
+                            *[p["metadata"]["nom"] for p in self.breadcrumb],
                         )
                         if len(self.breadcrumb) > 0
                         else pathlib.Path("Favoris")
