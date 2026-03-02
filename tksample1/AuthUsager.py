@@ -94,6 +94,9 @@ class Authentification:
         self.__filehosts: Optional[list[dict]] = None
         self.__filehost_idx = 0
 
+        # Confirmation code for CLI authentication flow
+        self.__confirmation_code: Optional[str] = None
+
     @property
     def formatteur(self):
         return self.__formatteur
@@ -136,6 +139,11 @@ class Authentification:
     def call(self, *args, **kwargs):
         with self.__lock_emit:
             return self.__sio.call(*args, **kwargs)  # type: ignore
+
+    @property
+    def confirmation_code(self):
+        """Get the confirmation code for CLI authentication."""
+        return self.__confirmation_code
 
     def init_config(self):
         """Initialize configuration from saved settings.
@@ -250,6 +258,9 @@ class Authentification:
                                 % (nom_usager, idmg)
                             )
                             self._cle_certificat = cle_certificat  # type: ignore
+                            self.__confirmation_code = (
+                                None  # No code needed for existing cert
+                            )
                             self.__pret.set()
                             return
 
@@ -406,6 +417,8 @@ class Authentification:
                 code_activation_ecran = "-".join(
                     [code_activation[0:4], code_activation[4:]]
                 )
+                # Store confirmation code for CLI access
+                self.__confirmation_code = code_activation_ecran
                 self.__logger.debug(
                     "Demande enregistrement usager %s avec code %s"
                     % (self.nom_usager, code_activation_ecran)
@@ -453,7 +466,7 @@ class Authentification:
         contenu = json.loads(message["contenu"])
         certificat = contenu["certificat"]
         ca = certificat[-1]
-        csr_pem = self.__cle_csr_genere.get_pem_csr()  # type: ignore
+        cle_pem = self.__cle_csr_genere.get_pem_cle()  # type: ignore
         certificat = "\n".join(certificat[0:2])
 
         # Sauvegarder le nouvel usager/url serveur
@@ -462,7 +475,6 @@ class Authentification:
         # Sauvegarder certificats
         with open(self.__path_cert, "wt") as fichier:
             fichier.write(certificat)
-        cle_pem = self.__cle_csr_genere.get_pem_csr()  # type: ignore
         with open(self.__path_cle, "wt") as fichier:
             fichier.write(cle_pem)
         self.__path_cle.chmod(0o600)

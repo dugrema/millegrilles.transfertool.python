@@ -101,8 +101,10 @@ class CLIHandler:
                     raise ConnectionError("Failed to establish connection")
             else:
                 print("No saved credentials found.")
-                print("Hint: Use GUI mode to authenticate first, then try CLI mode.")
-                raise ConnectionError("No credentials available for auto-connect")
+                print("Auto-triggering connect command for authentication...\n")
+                # Auto-trigger the connect command to prompt user for credentials
+                self.cmd_connect()
+                return  # cmd_connect handles the connection flow
 
             # Small delay to ensure navigation is ready
             import time
@@ -226,35 +228,160 @@ class CLIHandler:
         print("Tip: Use 'connect' to re-authenticate if needed")
         print()
 
+    def _prompt_for_credentials(self):
+        """Prompt user for username and server URL."""
+        print("\n=== MilleGrilles Authentication ===\n")
+
+        # Prompt for username
+        username = input("Enter your username: ").strip()
+        if not username:
+            print("Error: Username cannot be empty.")
+            return None, None
+
+        # Prompt for server URL
+        server_url = input(
+            "Enter server URL (e.g., https://millegrille.example.com): "
+        ).strip()
+        if not server_url:
+            print("Error: Server URL cannot be empty.")
+            return None, None
+
+        # Validate URL format
+        if not server_url.startswith(("http://", "https://")):
+            server_url = f"https://{server_url}"
+
+        return username, server_url
+
+    def _authenticate_user(self, username: str, server_url: str):
+        """Initiate authentication with the server.
+
+        Args:
+            username: User's username
+            server_url: Server URL
+
+        Returns:
+            bool: True if authentication initiated successfully, False otherwise
+        """
+        try:
+            self.__auth.authentifier(username, server_url)
+            return True
+        except Exception as e:
+            self.__logger.exception("Authentication failed")
+            print(f"Error: Authentication failed - {e}")
+            return False
+
+    def _display_confirmation_code(self):
+        """Display the confirmation code and instructions to the user."""
+        confirmation_code = self.__auth.confirmation_code
+        if confirmation_code is None:
+            # Using existing certificate, no code needed
+            return False
+
+        print("\n" + "=" * 50)
+        print("AUTHENTICATION CODE REQUIRED")
+        print("=" * 50)
+        print(f"\nYour confirmation code is: **{confirmation_code}**\n")
+        print(
+            "Please enter this code on your MilleGrilles device/app to approve this connection."
+        )
+        print("The server has 5 minutes (300 seconds) to approve your request.\n")
+        print("Waiting for approval...")
+
+        return True
+
+    def _wait_for_server_approval(self, timeout: int = 300):
+        """Wait for server to approve the authentication request.
+
+        Args:
+            timeout: Maximum time to wait in seconds (default 300)
+
+        Returns:
+            bool: True if approved, False if timeout or error
+        """
+        try:
+            # Show progress indicator
+            print("[", end="", flush=True)
+
+            # Wait for the certificate event with progress
+            progress_chars = [" "] * 30
+            for i in range(timeout):
+                progress_chars[i % 30] = "#"
+                print("".join(progress_chars), end="\r", flush=True)
+
+                if self.__auth.connect_event.wait(timeout=1):
+                    print("] Approved!")
+                    return True
+
+                if i > 0 and i % 30 == 0:
+                    print(f"\rWaiting for approval... {i} seconds elapsed", flush=True)
+
+            print("\r[ ] Timeout!")
+            return False
+
+        except Exception as e:
+            self.__logger.exception("Error waiting for server approval")
+            print(f"\rError waiting for approval: {e}")
+            return False
+
     def cmd_connect(self):
-        """Connect to server."""
-        self.__logger.info("Connecting to server...")
-        print("Connecting to server...")
+        """Connect to server with authentication flow."""
+        self.__logger.info("Starting connection process...")
+        print("\n=== Connect Command ===")
 
         # Check if already connected
         if self.__auth.connect_event.is_set():
             print("Already connected. Use 'disconnect' first to re-authenticate.")
             return
 
-        # Check if credentials exist
+        # Step 1: Check if we have existing credentials
         if self.__auth.nom_usager and self.__auth.url_fiche_serveur:
-            try:
-                url_serveur = self.__auth.url_fiche_serveur.geturl()
-                self.__auth.authentifier(self.__auth.nom_usager, url_serveur)
-
-                # Wait for connection with timeout
-                connected = self.__auth.connect_event.wait(timeout=30)
-                if connected:
-                    print("Connection established")
-                else:
-                    print(
-                        "Connection timeout. Check credentials or server availability."
-                    )
-            except Exception as e:
-                self.__logger.exception("Connection failed")
-                print(f"Connection failed: {e}")
+            use_existing = (
+                input("\nExisting credentials found. Use them? [y/N]: ").strip().lower()
+            )
+            if use_existing in ("y", "yes"):
+                username = self.__auth.nom_usager
+                server_url = self.__auth.url_fiche_serveur.geturl()
+            else:
+                credentials = self._prompt_for_credentials()
+                if credentials[0] is None:
+                    return
+                username, server_url = credentials
         else:
-            print("No credentials found. Please use GUI mode to authenticate first.")
+            # No existing credentials, prompt for new ones
+            credentials = self._prompt_for_credentials()
+            if credentials[0] is None:
+                return
+            username, server_url = credentials
+
+        # Step 2: Initiate authentication
+        print(f"\nAuthenticating {username} with {server_url}...")
+        if not self._authenticate_user(username, server_url):
+            return
+
+        # Step 3: Display confirmation code if needed
+        needs_approval = self._display_confirmation_code()
+
+        # Step 4: Wait for server approval (only if new authentication)
+        if needs_approval:
+            approved = self._wait_for_server_approval()
+            if not approved:
+                print(
+                    "\nAuthentication timeout. Server did not approve the connection."
+                )
+                print("Please check your credentials and try again.")
+                return
+
+        # Step 5: Wait for connection to be established
+        print("\nEstablishing connection...")
+        connected = self.__auth.connect_event.wait(timeout=30)
+
+        if connected:
+            print("\n✓ Connection established successfully!")
+            print(f"User: {self.__auth.nom_usager}")
+            print(f"Server: {self.__auth.url_fiche_serveur.hostname}")
+        else:
+            print("\n✗ Connection timeout. Check credentials or server availability.")
+            self.__logger.error("Connection timeout after authentication")
 
     def cmd_status(self):
         """Show connection status."""
