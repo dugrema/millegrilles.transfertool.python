@@ -164,6 +164,8 @@ class CLIHandler:
             self.cmd_get(args)
         elif command == "put":
             self.cmd_put(args)
+        elif command == "mkdir":
+            self.cmd_mkdir(args)
         elif command == "exit" or command == "quit":
             self.cmd_exit()
         elif command == "help":
@@ -181,6 +183,7 @@ class CLIHandler:
         print("  pwd        - Print current working directory")
         print("  get <file> - Download file from current directory")
         print("  put <path> - Upload file/directory to current directory")
+        print("  mkdir <name> - Create new directory/collection in current directory")
         print("  exit       - Exit CLI")
         print()
 
@@ -481,6 +484,45 @@ class CLIHandler:
 
         except Exception as e:
             self.__logger.exception("Error during put operation")
+            print(f"Error: {e}")
+
+    def cmd_mkdir(self, args: List[str]):
+        """Create new directory/collection on server in current directory.
+
+        Args:
+            args: List containing the name of the directory to create
+        """
+        if not args:
+            print("Error: mkdir requires a directory name argument")
+            print("Usage: mkdir <directory_name>")
+            return
+
+        dir_name = args[0]
+
+        try:
+            # Get current directory information
+            connexion = self.__navigation.connexion
+            if connexion is None or connexion.url_fiche_serveur is None:
+                print("Error: Not connected to server")
+                return
+
+            # Get current directory cuuid from navigation breadcrumb
+            cuuid_parent: str | None = None
+            if len(self.__navigation.breadcrumb) > 0:
+                cuuid_parent = self.__navigation.breadcrumb[-1].get("tuuid")
+
+            # Create the collection using Uploader.creer_collection
+            cuuid = self.__transfer_handler.uploader.creer_collection(
+                dir_name, cuuid_parent
+            )
+
+            print(f"Directory '{dir_name}' created successfully (tuuid: {cuuid})")
+
+            # Refresh current directory state to include new directory
+            self._get_current_repertoire_from_navigation()
+
+        except Exception as e:
+            self.__logger.exception("Error during mkdir operation")
             print(f"Error: {e}")
 
     def _format_size(self, size: int) -> str:
