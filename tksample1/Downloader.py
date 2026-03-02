@@ -313,6 +313,9 @@ class Downloader:
                 download_repertoire = DownloadRepertoire(t, path_destination)
                 self.download_repertoire(download_repertoire)
 
+        # Mark directory download as complete
+        item.download_complete.set()
+
     def download_fichier(self, item: DownloadFichier):
         self.__connexion.connect_event.wait()
         if self.__stop_event.is_set():
