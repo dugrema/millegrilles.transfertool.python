@@ -154,7 +154,7 @@ UPLOAD_SPLIT_SIZE = 100_000_000
 
 
 class Uploader:
-    def __init__(self, stop_event, connexion: Authentification):
+    def __init__(self, stop_event, connexion: Authentification, progress_wrapper=None):
         self.__logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
         self.__stop_event = stop_event
         self.__connexion = connexion
@@ -168,6 +168,7 @@ class Uploader:
         self.__navigation = None
         self.__upload_en_cours: Optional[Union[UploadFichier, UploadRepertoire]] = None
         self.__event_upload_in_progress = Event()
+        self.__progress_wrapper = progress_wrapper  # CLI progress bar wrapper
 
         self.__thread = Thread(name="uploader", target=self.upload_thread, daemon=False)
         self.__thread.start()
@@ -175,6 +176,19 @@ class Uploader:
         # self.__thread_label.start()
 
         self.__init_mime_types()
+
+    def __update_progress(self, phase: str, current: int):
+        """Update progress for the specified phase.
+
+        Args:
+            phase: Either 'encrypt' or 'transfer'
+            current: Current bytes processed
+        """
+        if self.__progress_wrapper:
+            if phase == "encrypt":
+                self.__progress_wrapper.update_encrypt(current)
+            elif phase == "transfer":
+                self.__progress_wrapper.update_transfer(current)
 
     def __init_mime_types(self):
         import tksample1
@@ -188,6 +202,21 @@ class Uploader:
 
     def set_navigation(self, navigation):
         self.__navigation = navigation
+
+    @property
+    def progress_wrapper(self):
+        """Get the progress wrapper for CLI mode."""
+        return self.__progress_wrapper
+
+    @progress_wrapper.setter
+    def progress_wrapper(self, value):
+        """Set the progress wrapper for CLI mode."""
+        self.__progress_wrapper = value
+
+    @progress_wrapper.setter
+    def progress_wrapper(self, value):
+        """Set the progress wrapper for CLI mode."""
+        self.__progress_wrapper = value
 
     def quit(self):
         self.__upload_pret.set()
@@ -452,7 +481,16 @@ class Uploader:
             with open(upload.path, "rb") as fichier:
                 while cipher.hachage is None:
                     # Preparer chiffrage
-                    prepare_file(self.__stop_event, fichier, tmpfile, cipher, hacheur)
+                    prepare_file(
+                        self.__stop_event,
+                        fichier,
+                        tmpfile,
+                        cipher,
+                        hacheur,
+                        on_progress=lambda current: self.__update_progress(
+                            "encrypt", current
+                        ),
+                    )
             hachage_original = hacheur.finalize()
             secret_key = cipher.cle_secrete
             info_dechiffrage = cipher.get_info_dechiffrage(self.__certificats_chiffrage)
@@ -473,7 +511,13 @@ class Uploader:
                 if position == encrypted_size:
                     break  # Done
                 stream = file_iterator(
-                    self.__stop_event, tmpfile, UPLOAD_SPLIT_SIZE, upload
+                    self.__stop_event,
+                    tmpfile,
+                    UPLOAD_SPLIT_SIZE,
+                    upload,
+                    on_progress=lambda current: self.__update_progress(
+                        "transfer", current
+                    ),
                 )
                 url_put = f"{self.__connexion.filehost_url}/files/{fuuid}/{position}"
                 response = self.__https_session.put(url_put, data=stream)
@@ -640,7 +684,19 @@ UPLOAD_CHUNK_SIZE = 64 * 1024
 #             yield chunk
 
 
-def file_iterator(stop_event: Event, fp, maxsize, upload: UploadFichier):
+def file_iterator(
+    stop_event: Event, fp, maxsize, upload: UploadFichier, on_progress=None
+):
+    """
+    Iterate over file in chunks for upload.
+
+    Args:
+        stop_event: Event to check for cancellation
+        fp: File pointer to read from
+        maxsize: Maximum size to read
+        upload: UploadFichier instance to track upload progress
+        on_progress: Optional callback(current_bytes) for progress updates
+    """
     current_output_size = 0
     maxsize = maxsize - UPLOAD_CHUNK_SIZE
     while current_output_size < maxsize:
@@ -652,12 +708,30 @@ def file_iterator(stop_event: Event, fp, maxsize, upload: UploadFichier):
             return
         chunk_size = len(chunk)
         upload.add_chunk_uploade(chunk_size)
+        if on_progress:
+            on_progress(current_output_size + chunk_size)
         if len(chunk) > 0:
             current_output_size += len(chunk)
             yield chunk
 
 
-def prepare_file(stop_event: Event, fp, fp_out, cipher, hacheur) -> int:
+def prepare_file(
+    stop_event: Event, fp, fp_out, cipher, hacheur, on_progress=None
+) -> int:
+    """
+    Encrypt a file and write to output.
+
+    Args:
+        stop_event: Event to check for cancellation
+        fp: Input file pointer
+        fp_out: Output file pointer
+        cipher: Cipher object for encryption
+        hacheur: Hasher object for computing digest
+        on_progress: Optional callback(current_bytes, total_bytes) for progress updates
+
+    Returns:
+        Total bytes encrypted
+    """
     current_output_size = 0
     while True:
         if stop_event.is_set():
@@ -673,6 +747,8 @@ def prepare_file(stop_event: Event, fp, fp_out, cipher, hacheur) -> int:
         if len(chunk) > 0:
             current_output_size += len(chunk)
             fp_out.write(chunk)
+            if on_progress:
+                on_progress(current_output_size)
 
 
 def path_key(item: pathlib.Path):

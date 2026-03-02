@@ -6,6 +6,7 @@ from typing import List, Optional
 
 from tksample1.FileTransfer import TransferHandler
 from tksample1.Navigation import Navigation, Repertoire, sync_collection
+from tksample1.ProgressBar import DownloadProgressBar, UploadProgressBar
 
 
 class CLIHandler:
@@ -683,24 +684,54 @@ class CLIHandler:
 
             type_node = target_item.get("type_node", "")
 
-            # Distinguish between file and directory download
+            # For directories, download without progress bar (simpler)
             if type_node in ["Collection", "Repertoire"]:
                 print(f"Downloading directory '{filename}'...")
                 download_item = self.__transfer_handler.ajouter_download_repertoire(
                     target_item, self.__local_dir
                 )
+                download_item.wait()
+                print(f"Download complete: '{filename}'")
+                return
+
+            # For files, use progress bar
             elif type_node == "Fichier":
                 print(f"Downloading file '{filename}'...")
+
+                # Create progress bar for download
+                download_progress = DownloadProgressBar(filename)
+
+                # Get encrypted size from target_item
+                encrypted_size = target_item.get("version_courante", {}).get(
+                    "taille", None
+                )
+
+                # Start download phase (transfer from server)
+                download_progress.start_download(encrypted_size)
+
+                # Set progress wrapper on transfer handler
+                self.__transfer_handler.set_progress_wrappers(
+                    downloader_progress_wrapper=download_progress.wrapper
+                )
+
+                # Download the file
                 download_item = self.__transfer_handler.ajouter_download_fichier(
                     target_item, self.__local_dir
                 )
+
+                # Wait for download to complete
+                download_item.wait()
+
+                # Start decrypt phase after download completes
+                download_progress.start_decrypt()
+
+                # Close progress bars
+                download_progress.close()
+
+                print(f"Download complete: '{filename}'")
             else:
                 print(f"Error: Unsupported type '{type_node}'")
                 return
-
-            # Wait for download to complete
-            download_item.wait()
-            print(f"Download complete: '{filename}'")
 
         except FileExistsError:
             print(f"Error: File '{filename}' already exists in download directory")
@@ -742,24 +773,47 @@ class CLIHandler:
             if len(self.__navigation.breadcrumb) > 0:
                 cuuid_parent = self.__navigation.breadcrumb[-1].get("tuuid")
 
-            # Distinguish between file and directory upload
+            # For directories, upload without progress bar (simpler)
+            # For directories, upload without progress bar (simpler)
             if path_upload.is_dir():
                 print(f"Uploading directory '{local_path}'...")
                 upload_item = self.__transfer_handler.ajouter_upload(
                     cuuid_parent or "", str(path_upload)
                 )
-            elif path_upload.is_file():
+                upload_item.wait()
+                print(f"Upload complete: '{local_path}'")
+                return
+
+            # For files, use progress bar
+            if path_upload.is_file():
                 print(f"Uploading file '{local_path}'...")
+
+                # Create progress bar for upload
+                upload_progress = UploadProgressBar(path_upload.name)
+
+                # Start encryption phase
+                upload_progress.start_encrypt()
+
+                # Set progress wrapper on transfer handler
+                self.__transfer_handler.set_progress_wrappers(
+                    uploader_progress_wrapper=upload_progress.wrapper
+                )
+
+                # Upload the file
                 upload_item = self.__transfer_handler.ajouter_upload(
                     cuuid_parent or "", str(path_upload)
                 )
+
+                # Wait for upload to complete
+                upload_item.wait()
+
+                # Close progress bars
+                upload_progress.close()
+
+                print(f"Upload complete: '{local_path}'")
             else:
                 print(f"Error: '{local_path}' is neither a file nor a directory")
                 return
-
-            # Wait for upload to complete
-            upload_item.wait()
-            print(f"Upload complete: '{local_path}'")
 
         except Exception as e:
             self.__logger.exception("Error during put operation")

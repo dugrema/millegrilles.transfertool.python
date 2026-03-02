@@ -4,11 +4,16 @@ from typing import Optional
 
 from tksample1.AuthUsager import Authentification
 from tksample1.Downloader import Downloader, DownloadFichier
-from tksample1.Uploader import Uploader, UploadFichier
+from tksample1.ProgressBar import ProgressBarWrapper
+from tksample1.Uploader import Uploader
 
 
 class TransferHandler:
-    def __init__(self, stop_event, connexion: Authentification):
+    def __init__(
+        self,
+        stop_event,
+        connexion: Authentification,
+    ):
         self.__logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
         self.__stop_event = stop_event
         self.frame: Optional[object] = None
@@ -54,6 +59,23 @@ class TransferHandler:
 
     def ajouter_upload(self, cuuid_parent: str, path_upload: str):
         return self.uploader.ajouter_upload(cuuid_parent, path_upload)
+
+    def set_progress_wrappers(
+        self,
+        uploader_progress_wrapper: Optional[ProgressBarWrapper] = None,
+        downloader_progress_wrapper: Optional[ProgressBarWrapper] = None,
+    ):
+        """
+        Set progress wrappers for CLI mode.
+
+        Args:
+            uploader_progress_wrapper: ProgressBarWrapper instance for upload progress
+            downloader_progress_wrapper: ProgressBarWrapper instance for download progress
+        """
+        if uploader_progress_wrapper is not None:
+            self.uploader.progress_wrapper = uploader_progress_wrapper
+        if downloader_progress_wrapper is not None:
+            self.downloader.progress_wrapper = downloader_progress_wrapper
 
     def creer_collection(self, nom: str, cuuid_parent: Optional[str] = None) -> str:
         return self.uploader.creer_collection(nom, cuuid_parent)

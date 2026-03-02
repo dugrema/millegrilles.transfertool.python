@@ -82,7 +82,9 @@ class DownloadRepertoire:
 
 
 class Downloader:
-    def __init__(self, stop_event: Event, connexion: Authentification):
+    def __init__(
+        self, stop_event: Event, connexion: Authentification, progress_wrapper=None
+    ):
         self.__logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
         self.__stop_event = stop_event
         self.__connexion = connexion
@@ -96,6 +98,20 @@ class Downloader:
         self.__event_download_in_progress = Event()
         self.__navigation = None
         self.__https_session: Optional[requests.Session] = None
+        self.__progress_wrapper = progress_wrapper  # CLI progress bar wrapper
+
+    def __update_progress(self, phase: str, current: int):
+        """Update progress for the specified phase.
+
+        Args:
+            phase: Either 'transfer' or 'encrypt'
+            current: Current bytes processed
+        """
+        if self.__progress_wrapper:
+            if phase == "transfer":
+                self.__progress_wrapper.update_transfer(current)
+            elif phase == "encrypt":
+                self.__progress_wrapper.update_encrypt(current)
 
         self.__thread = Thread(
             name="downloader", target=self.download_thread, daemon=False
@@ -108,6 +124,16 @@ class Downloader:
 
     def quit(self):
         self.__download_pret.set()
+
+    @property
+    def progress_wrapper(self):
+        """Get the progress wrapper for CLI mode."""
+        return self.__progress_wrapper
+
+    @progress_wrapper.setter
+    def progress_wrapper(self, value):
+        """Set the progress wrapper for CLI mode."""
+        self.__progress_wrapper = value
 
     def set_navigation(self, navigation):
         self.__navigation = navigation
@@ -317,6 +343,8 @@ class Downloader:
                     output.write(chunk)
                     chunks_done += 1
                     item.taille_recue += len(chunk)
+                    if self.__progress_wrapper:
+                        self.__update_progress("transfer", item.taille_recue)
                     if self.__stop_event.is_set() is True:
                         path_reception_work.unlink()
                         raise Exception("Stopping")
@@ -335,7 +363,7 @@ class Downloader:
             )
 
         try:
-            dechiffrer_in_place(item, path_reception_work)
+            dechiffrer_in_place(item, path_reception_work, self.__progress_wrapper)
         except Exception as e:
             self.__logger.exception(
                 "Erreur dechiffrage, on supprime %s" % path_reception_work
@@ -350,11 +378,12 @@ class Downloader:
         item.download_complete.set()
 
 
-def dechiffrer_in_place(item, path_reception):
+def dechiffrer_in_place(item, path_reception, progress_wrapper=None):
     """
     Dechiffre un fichier en reutilisant l'espace deja occupe (overwrite).
-    :param item:
-    :param path_reception:
+    :param item: DownloadFichier instance
+    :param path_reception: Path to the encrypted file
+    :param progress_wrapper: Optional ProgressBarWrapper for progress updates
     :return:
     """
     with open(path_reception, "rb+") as fichier:
@@ -374,12 +403,16 @@ def dechiffrer_in_place(item, path_reception):
                 fichier.write(chunk_dechiffre)
                 position_write += len(chunk_dechiffre)
                 fichier.seek(position_read)
+                if progress_wrapper:
+                    progress_wrapper.update_encrypt(position_write)
 
         chunk_dechiffre = decipher.finalize()
         if chunk_dechiffre:
             fichier.seek(position_write)
             fichier.write(chunk_dechiffre)
             position_write += len(chunk_dechiffre)
+            if progress_wrapper:
+                progress_wrapper.update_encrypt(position_write)
 
         # Tronquer fichier a la position d'ecriture courante
         fichier.truncate()
