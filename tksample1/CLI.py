@@ -286,7 +286,8 @@ class CLIHandler:
             # Get size (only for files)
             type_node = item.get("type_node", "")
             if type_node not in ["Collection", "Repertoire"]:
-                size = item.get("size", 0)
+                # Size is stored in metadata, not directly in item
+                size = item.get("metadata", {}).get("taille", 0)
                 size_str = self._format_size(size)
             else:
                 size_str = "-"
