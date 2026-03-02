@@ -15,6 +15,7 @@ from wakepy import keep
 
 from tksample1.AuthUsager import Authentification
 from tksample1.Navigation import sync_collection
+from tksample1.ProgressBar import DownloadProgressBar
 
 # Suppress wakepy ActivationWarning when DBus services are not available
 warnings.filterwarnings(
@@ -267,8 +268,7 @@ class Downloader:
         rep = sync_collection(self.__connexion, tuuid)
 
         # Generer les downloads
-        nom_repertoire = item.nom
-        path_destination = pathlib.Path(item.destination, nom_repertoire)
+        path_destination = pathlib.Path(item.destination, item.nom)
         path_destination.mkdir(exist_ok=True)
         for t in rep.fichiers:
             type_node = t["type_node"]
@@ -279,7 +279,33 @@ class Downloader:
                     self.__logger.warning("Cle fichier manquante, skip : %s" % t)
                 else:
                     try:
+                        # Create individual progress bar for this file
+                        progress_bar = DownloadProgressBar(download_fichier.nom)
+
+                        # Save current progress wrapper and set this file's wrapper
+                        old_progress_wrapper = self.__progress_wrapper
+                        self.__progress_wrapper = progress_bar.wrapper
+
+                        # Get encrypted size from file info
+                        encrypted_size = t.get("version_courante", {}).get(
+                            "taille", None
+                        )
+
+                        # Start download phase
+                        progress_bar.start_download(encrypted_size)
+
+                        # Download the file
                         self.download_fichier(download_fichier)
+
+                        # Start decrypt phase after download completes
+                        progress_bar.start_decrypt()
+
+                        # Close progress bar
+                        progress_bar.close()
+
+                        # Restore old progress wrapper
+                        self.__progress_wrapper = old_progress_wrapper
+
                     except FileExistsError:
                         pass  # OK
             else:
