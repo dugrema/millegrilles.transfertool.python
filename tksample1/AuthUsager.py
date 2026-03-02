@@ -96,6 +96,9 @@ class Authentification:
         # Confirmation code for CLI authentication flow
         self.__confirmation_code: Optional[str] = None
 
+        # TOTP code for two-factor authentication
+        self.__totp_code: Optional[str] = None
+
     @property
     def formatteur(self):
         return self.__formatteur
@@ -268,12 +271,32 @@ class Authentification:
 
         self.deconnecter()
 
-    def authentifier(self, nom_usager=None, url_serveur=None):
+    def authentifier(self, nom_usager=None, url_serveur=None, totp_code=None):
         nom_usager = nom_usager or self.nom_usager
         url_serveur = url_serveur or self.url_fiche_serveur
+        totp_code = totp_code or None  # Ensure None if empty string
 
         if nom_usager is None or url_serveur is None:
             raise ValueError("Il faut fournir nom_usager et url_serveur")
+
+        # Validate TOTP code format if provided
+        from tksample1.TotpValidation import (
+            TOTPValidationError,
+            sanitize_totp_code,
+            validate_totp_code,
+        )
+
+        if totp_code is not None:
+            is_valid, error_msg = validate_totp_code(totp_code)
+            if not is_valid:
+                raise TOTPValidationError(error_msg)
+
+            # Store sanitized TOTP code for use in socketio request
+            totp_code = sanitize_totp_code(totp_code)
+            self.__totp_code = totp_code
+            self.__logger.info(
+                f"TOTP code provided and validated: {len(totp_code)} digits"
+            )
 
         self.__logger.info("Charger usager %s avec url %s" % (nom_usager, url_serveur))
         if self.__pret.is_set():
@@ -482,8 +505,16 @@ class Authentification:
                 )
 
                 commande_ajouter_csr = {"nomUsager": self.nom_usager, "csr": csr_pem}
-                # sio.emit('ecouterEvenementsActivationFingerprint', {'fingerprintPk': cle_publique}, callback=self.callback_activation)
-                # sio.emit('ajouterCsrRecovery', commande_ajouter_csr, callback=self.callback_csr)
+
+                # Include TOTP code if provided
+                if (
+                    hasattr(self, "_Authentification__totp_code")
+                    and self._Authentification__totp_code
+                ):
+                    commande_ajouter_csr["totpCode"] = self._Authentification__totp_code
+                    self.__logger.debug(
+                        f"Including TOTP code in authentication request"
+                    )
 
                 # New approach
                 sio.emit(
@@ -491,11 +522,27 @@ class Authentification:
                     {"publicKey": cle_publique},
                     callback=self.callback_activation,
                 )
-                sio.emit(
-                    "authentication_addrecoverycsr",
-                    commande_ajouter_csr,
-                    callback=self.callback_csr,
-                )
+
+                event_certificat = Event()
+
+                if commande_ajouter_csr.get("totpCode"):
+                    def callback_totp_request(*args):
+                        self.__logger.debug(f"callback csr : {args}")
+                        self.recevoir_certificat({"message": {"contenu": json.dumps(args[0])}})
+                        event_certificat.set()
+
+                    raise NotImplementedError("TODO")
+                    # sio.emit(
+                    #     "authentication_TODO",
+                    #     commande_ajouter_csr,
+                    #     callback=self.callback_csr,
+                    # )
+                else:
+                    sio.emit(
+                        "authentication_addrecoverycsr",
+                        commande_ajouter_csr,
+                        callback=self.callback_csr,
+                    )
 
                 # Update UI to show confirmation code
                 if self.auth_frame is not None:
@@ -504,8 +551,6 @@ class Authentification:
                             connected=False,
                             code_activation=code_activation_ecran,  # type: ignore
                         )
-
-                event_certificat = Event()
 
                 @sio.on("*")
                 def message(event, data):
@@ -561,7 +606,7 @@ class Authentification:
                 self.auth_frame.set_connection_status(connected=True)  # type: ignore
 
     def callback_csr(self, *args):
-        pass
+        self.__logger.debug(f"callback csr : {args}")
 
     def callback_activation(self, *args):
         pass

@@ -28,8 +28,9 @@ class ConnectionFrame(tk.Frame):
         # Configure grid weights for responsive layout
         self.grid_rowconfigure(0, weight=0)  # Username - fixed height
         self.grid_rowconfigure(1, weight=0)  # Server URL - fixed height
-        self.grid_rowconfigure(2, weight=0)  # Status - fixed height
-        self.grid_rowconfigure(3, weight=0)  # Buttons - fixed height
+        self.grid_rowconfigure(2, weight=0)  # TOTP code - fixed height
+        self.grid_rowconfigure(3, weight=0)  # Status - fixed height
+        self.grid_rowconfigure(4, weight=0)  # Buttons - fixed height
         self.grid_columnconfigure(0, weight=0)  # Labels - fixed width
         self.grid_columnconfigure(1, weight=1)  # Inputs - expand
 
@@ -40,6 +41,10 @@ class ConnectionFrame(tk.Frame):
         # Server URL input
         self.label_server_url = tk.Label(master=self, text="URL serveur:")
         self.url_entry = tk.Entry(master=self, width=60)
+
+        # TOTP code input
+        self.label_totp = tk.Label(master=self, text="Code TOTP:")
+        self.totp_entry = tk.Entry(master=self, width=12, show="●")
 
         # Connection status label
         self.status_var = tk.StringVar(master=self, value="Déconnecté")
@@ -72,9 +77,12 @@ class ConnectionFrame(tk.Frame):
         self.label_server_url.grid(row=1, column=0, sticky="e", padx=5, pady=5)
         self.url_entry.grid(row=1, column=1, sticky="ew", padx=5, pady=5)
 
-        self.status_label.grid(row=2, column=0, columnspan=2, sticky="w", pady=10)
+        self.label_totp.grid(row=2, column=0, sticky="e", padx=5, pady=5)
+        self.totp_entry.grid(row=2, column=1, sticky="w", padx=5, pady=5)
 
-        self.button_frame.grid(row=3, column=0, columnspan=2, sticky="w", pady=5)
+        self.status_label.grid(row=3, column=0, columnspan=2, sticky="w", pady=10)
+
+        self.button_frame.grid(row=4, column=0, columnspan=2, sticky="w", pady=5)
         self.connect_button.grid(row=0, column=0, padx=5)
         self.disconnect_button.grid(row=0, column=1, padx=5)
 
@@ -120,9 +128,10 @@ class ConnectionFrame(tk.Frame):
             pass  # Widget destroyed
 
     def btn_connect(self):
-        """Handle connection button click."""
+        """Handle connection button click with optional TOTP."""
         username = self.username_entry.get().strip()
         server_url = self.url_entry.get().strip()
+        totp_code = self.totp_entry.get().strip() or None  # None if empty
 
         if not username:
             self._show_error("Nom usager requis")
@@ -132,8 +141,21 @@ class ConnectionFrame(tk.Frame):
             self._show_error("URL serveur requise")
             return
 
-        self.auth.authentifier(username, server_url)
+        # Validate TOTP code if provided
+        from tksample1.TotpValidation import validate_totp_code
+
+        if totp_code:
+            is_valid, error_msg = validate_totp_code(totp_code)
+            if not is_valid:
+                self._show_error(error_msg)
+                return
+
+        # Call auth with optional TOTP
+        self.auth.authentifier(username, server_url, totp_code=totp_code)
         self.set_connection_status(connected=True)
+
+        # Clear TOTP field after authentication attempt
+        self.totp_entry.delete(0, tk.END)
 
     def switch_to_tab(self, tab_index: int):
         """Switch notebook tab after successful auto-connect.

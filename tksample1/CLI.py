@@ -209,7 +209,9 @@ class CLIHandler:
         elif command == "disconnect":
             self.cmd_disconnect()
         elif command == "connect":
-            self.cmd_connect()
+            # Extract TOTP code if provided as argument
+            totp_code = args[0] if len(args) > 0 else None
+            self.cmd_connect(totp_code=totp_code)
         elif command == "status":
             self.cmd_status()
         elif command == "help":
@@ -252,22 +254,51 @@ class CLIHandler:
 
         return username, server_url
 
-    def _authenticate_user(self, username: str, server_url: str):
+    def _prompt_for_totp(self) -> Optional[str]:
+        """Prompt user for TOTP code if server requires it.
+
+        Returns:
+            TOTP code if provided, None otherwise
+        """
+        try:
+            totp = input("\nCode TOTP (laisser vide si non requis): ").strip()
+            return totp if totp else None
+        except KeyboardInterrupt:
+            print("\nAborted.")
+            return None
+
+    def _authenticate_user(
+        self, username: str, server_url: str, totp_code: Optional[str] = None
+    ):
         """Initiate authentication with the server.
 
         Args:
             username: User's username
             server_url: Server URL
+            totp_code: Optional TOTP code for two-factor authentication
 
         Returns:
             bool: True if authentication initiated successfully, False otherwise
         """
         try:
-            self.__auth.authentifier(username, server_url)
+            self.__auth.authentifier(username, server_url, totp_code=totp_code)
             return True
+        except ImportError as e:
+            # TOTP module not found - should not happen, but handle gracefully
+            self.__logger.exception("TOTP validation module not found")
+            print(
+                "Error: TOTP validation module error - please reinstall the application"
+            )
+            return False
         except Exception as e:
-            self.__logger.exception("Authentication failed")
-            print(f"Error: Authentication failed - {e}")
+            # Check if this is a TOTP validation error
+            error_msg = str(e)
+            if "TOTP" in error_msg or "Code TOTP" in error_msg:
+                self.__logger.exception("TOTP validation failed")
+                print(f"Error: {error_msg}")
+            else:
+                self.__logger.exception("Authentication failed")
+                print(f"Error: Authentication failed - {e}")
             return False
 
     def _display_confirmation_code(self):
@@ -323,9 +354,15 @@ class CLIHandler:
             print(f"\rError waiting for approval: {e}")
             return False
 
-    def cmd_connect(self):
-        """Connect to server with authentication flow."""
-        self.__logger.info("Starting connection process...")
+    def cmd_connect(self, totp_code: Optional[str] = None):
+        """Connect to server with authentication flow and optional TOTP.
+
+        Args:
+            totp_code: Optional TOTP code from command argument
+        """
+        self.__logger.info(
+            "Starting connection process with TOTP: %s", totp_code or "not provided"
+        )
         print("\n=== Connect Command ===")
 
         # Check if already connected
@@ -355,7 +392,7 @@ class CLIHandler:
 
         # Step 2: Initiate authentication
         print(f"\nAuthenticating {username} with {server_url}...")
-        if not self._authenticate_user(username, server_url):
+        if not self._authenticate_user(username, server_url, totp_code=totp_code):
             return
 
         # Step 3: Display confirmation code if needed
@@ -402,7 +439,9 @@ class CLIHandler:
         print()
         print("Available commands:")
         print("Connection:")
-        print("  connect    - Connect to server (re-authenticate if needed)")
+        print("  connect [TOTP_CODE] - Connect to server")
+        print("                      - TOTP_CODE: Optional 2FA code (6-10 digits)")
+        print("                      - Example: connect 123456")
         print("  disconnect - Disconnect from server")
         print("  status     - Show current connection status")
         print()
