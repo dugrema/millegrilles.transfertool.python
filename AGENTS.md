@@ -6,6 +6,35 @@ This is a python file transfer utility for MilleGrilles.
 
 Run using the .venv in the project (use `. .venv/bin/activate`, not `source`. To run: `python3 -m tksample1`.
 
+## Auto-Fallback Behavior
+
+The application automatically detects GUI availability and falls back to CLI mode when:
+- No display is available (`$DISPLAY` or `$WAYLAND_DISPLAY` not set)
+- tkinter is not installed
+- Running in a headless environment (SSH, Docker, CI/CD)
+
+### Force Mode Selection
+
+**Command-line flags:**
+- `--cli` - Force CLI mode
+- `--gui` - Force GUI mode (will error if unavailable)
+
+**Environment variable:**
+- `MGTRANSFER_MODE=cli` - Force CLI mode
+- `MGTRANSFER_MODE=gui` - Force GUI mode
+
+**Examples:**
+```bash
+# Run in CLI mode on a server
+MGTRANSFER_MODE=cli python3 -m tksample1
+
+# Run via SSH (auto-fallback)
+ssh user@server "python3 -m tksample1"
+
+# Force GUI even in headless (will fail)
+python3 -m tksample1 --gui
+```
+
 ## CLI Mode
 
 Run in CLI mode (text-based interface) by using the `--cli` argument:
@@ -51,12 +80,14 @@ millegrilles.transfertool.python/
 │   └── mgtransfertool.bat        # Windows launcher script
 └── tksample1/                      # Main application package
     ├── __init__.py               # Package initialization (empty)
-    ├── __main__.py               # Application entry point
+    ├── __main__.py               # Application entry point with auto-fallback
     ├── AuthUsager.py             # User authentication module
     ├── CLI.py                    # CLI handler for text-based interface
+    ├── Configuration.py          # Configuration management
     ├── Downloader.py             # File download functionality
     ├── FileTransfer.py           # Main file transfer UI handler
-    ├── Navigation.py             # File/directory navigation
+    ├── GuiCapability.py          # GUI detection and auto-fallback utility
+    ├── Navigation.py             # File system navigation
     ├── Uploader.py               # File upload functionality
     ├── apiMapping.signed.json    # API mapping configuration with signed JSON
     └── mimetypes.json            # MIME type definitions
@@ -68,8 +99,10 @@ millegrilles.transfertool.python/
 |--------|-------------|
 | **AuthUsager.py** | User authentication module handling MilleGrilles certificate management, secure communication, and session management. |
 | **CLI.py** | Command-line interface handler providing text-based file transfer operations with sftp-like commands. |
+| **Configuration.py** | Configuration management for application settings and directories. |
 | **Downloader.py** | File download functionality with progress tracking, encrypted file handling, and collection synchronization. |
 | **FileTransfer.py** | Main GUI component implementing the file transfer interface, coordinating uploads and downloads. |
+| **GuiCapability.py** | GUI detection utility for auto-fallback to CLI mode in headless environments. |
 | **Navigation.py** | File system navigation for browsing collections, displaying directories, and managing file selections. |
 | **Uploader.py** | File upload module handling encrypted file transfers, progress tracking, and collection operations. |
 | **apiMapping.signed.json** | API mapping configuration defining commands, requests, and subscriptions for MilleGrilles ecosystem interaction. |

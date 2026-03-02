@@ -1,59 +1,72 @@
+"""MilleGrilles Transfer Tool - Main Entry Point.
+
+This module provides the main entry point for the application with support for:
+- GUI mode with automatic fallback to CLI when display is unavailable
+- CLI mode for headless environments (SSH, Docker, CI/CD)
+- Environment variable control via MGTRANSFER_MODE
+"""
+
 import argparse
 import logging
+import os
 import time
-import tkinter as tk
 from threading import Event, Thread, active_count, enumerate
-from tkinter import ttk
 from typing import Optional
 
-from tksample1.AuthUsager import Authentification, AuthFrame
 from tksample1.CLI import CLIHandler
 from tksample1.Configuration import Configuration
-from tksample1.FileTransfer import TransferFrame, TransferHandler
-from tksample1.Navigation import Navigation, NavigationFrame
+from tksample1.GuiCapability import attempt_gui_initialization, determine_execution_mode
 
 
-class Window(tk.Tk):
+class Window:
+    """GUI Window wrapper that imports tkinter components."""
+
     def __init__(
         self,
         stop_event: Event,
-        auth: Authentification,
-        navigation: Navigation,
-        transfer_handler: TransferHandler,
+        auth,
+        navigation,
+        transfer_handler,
         *args,
         **kwargs,
     ):
         self.__logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
         self.__stop_event = stop_event
 
-        super().__init__(*args, **kwargs)
+        # Import tkinter components only when GUI mode is confirmed
+        import tkinter as tk
+        from tkinter import ttk
 
-        self.title("Transfer Tool - MilleGrilles")
+        from tksample1.AuthUsager import AuthFrame
+        from tksample1.FileTransfer import TransferFrame
+        from tksample1.Navigation import NavigationFrame
 
-        self.geometry("800x600")
-        self.minsize(600, 400)  # Minimum window size
+        self._tk_root = tk.Tk(*args, **kwargs)
+
+        self._tk_root.title("Transfer Tool - MilleGrilles")
+        self._tk_root.geometry("800x600")
+        self._tk_root.minsize(600, 400)
 
         # Bind configure event for resize
-        self.bind("<Configure>", self.on_resize)
+        self._tk_root.bind("<Configure>", self.on_resize)
 
         # Configure grid weights for main window
-        self.grid_rowconfigure(0, weight=0)  # Auth frame - no expand
-        self.grid_rowconfigure(1, weight=1)  # Notebook - expand vertically
-        self.grid_columnconfigure(0, weight=1)  # Expand horizontally
+        self._tk_root.grid_rowconfigure(0, weight=0)
+        self._tk_root.grid_rowconfigure(1, weight=1)
+        self._tk_root.grid_columnconfigure(0, weight=1)
 
-        self.auth: Authentification = auth
-        self.auth_frame: Optional[AuthFrame] = None  # type: ignore
+        self.auth = auth
+        self.auth_frame = None
 
-        self.__frame_notebook = ttk.Notebook(self)
+        self.__frame_notebook = ttk.Notebook(self._tk_root)
 
         self.__frame_auth = AuthFrame(auth)
-        # self.__frame_auth.pack()
         self.__frame_auth.grid(row=0, column=0, sticky="nsew")
 
         self.__frame_notebook.grid(
             row=1,
             column=0,
-            sticky="nsew",  # Expand in all directions
+            sticky="nsew",
             padx=5,
             pady=5,
         )
@@ -61,37 +74,55 @@ class Window(tk.Tk):
         self.__frame_navigation = NavigationFrame(
             navigation, master=self.__frame_notebook
         )
-        # self.__frame_navigation.pack()
         self.__frame_notebook.add(self.__frame_navigation, text="Navigation")
-        # grid(row=0, column=0)
 
         self.__frame_transfert = TransferFrame(transfer_handler)
         self.__frame_notebook.add(self.__frame_transfert, text="Transferts")
 
-        # Wiring du frame dans Authentification - permet changer affichage
+        # Wiring du frame dans Authentification
         self.auth_frame = self.__frame_auth
-        self.auth.auth_frame = self.__frame_auth  # type: ignore
-        navigation.nav_frame = self.__frame_navigation  # type: ignore
-        transfer_handler.transfer_frame = self.__frame_transfert  # type: ignore
+        self.auth.auth_frame = self.__frame_auth
+        navigation.nav_frame = self.__frame_navigation
+        transfer_handler.transfer_frame = self.__frame_transfert
 
     def on_resize(self, event):
         """Handle window resize events."""
-        # Optional: Adjust notebook padding based on size
         if event.width < 700 or event.height < 500:
             self.__frame_notebook.grid(padx=2, pady=2)
         else:
             self.__frame_notebook.grid(padx=5, pady=5)
 
+    def mainloop(self):
+        """Start the tkinter main loop."""
+        self._tk_root.mainloop()
+
+    def quit(self):
+        """Quit the tkinter application."""
+        self._tk_root.quit()
+
 
 class App:
-    def __init__(self, config: Optional[Configuration] = None, cli_mode: bool = False):
+    """Main application class with mode selection."""
+
+    def __init__(
+        self, config: Optional[Configuration] = None, cli_mode: Optional[bool] = None
+    ):
         self.__logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
         self.__stop_event = Event()
         self.__exit_code = 0
         self.config = config or Configuration.default()
-        self.cli_mode = cli_mode
 
-        # Initialize Authentification with configuration paths
+        # Determine execution mode with auto-detection if not specified
+        if cli_mode is None:
+            self.cli_mode = False  # Will be set by determine_mode()
+        else:
+            self.cli_mode = cli_mode
+
+        # Initialize core components (no tkinter dependency)
+        from tksample1.AuthUsager import Authentification
+        from tksample1.FileTransfer import TransferHandler
+        from tksample1.Navigation import Navigation
+
         self.auth = Authentification(
             self.__stop_event, downdir=self.config.downdir, tmpdir=self.config.tmpdir
         )
@@ -100,7 +131,7 @@ class App:
             self.__stop_event, self.auth, self.transfer_handler
         )
 
-        # Choose mode
+        # Initialize based on mode
         if self.cli_mode:
             self.cli_handler = CLIHandler(
                 self.__stop_event, self.auth, self.navigation, self.transfer_handler
@@ -122,7 +153,7 @@ class App:
 
         if self.__stop_event.is_set() is False:
             self.__stop_event.set()
-            self.__exit_code = 0  # Sortie normale par fermeture de la fenetre
+            self.__exit_code = 0
 
     def _exec_cli_mode(self):
         """Execute CLI mode."""
@@ -136,14 +167,11 @@ class App:
         self.__logger.info("Attente arret app")
         self.__stop_event.wait()
 
-        # Arreter toutes les threads
         self.__logger.info("Arret App")
         if not self.cli_mode:
             self.window.quit()
         self.auth.quit()
         self.navigation.quit()
-        # self.downloader.quit()
-        # self.uploader.quit()
         self.transfer_handler.quit()
 
         self.__logger.info("Arret complete, exit code : %d" % self.__exit_code)
@@ -172,6 +200,12 @@ def parse_arguments():
     )
 
     parser.add_argument(
+        "--gui",
+        action="store_true",
+        help="Force GUI mode (will fail if display not available)",
+    )
+
+    parser.add_argument(
         "--downdir",
         type=str,
         default=None,
@@ -186,7 +220,7 @@ def parse_arguments():
 
 
 def main():
-    """Main entry point with argument parsing."""
+    """Main entry point with argument parsing and auto-fallback."""
     args = parse_arguments()
 
     # Create configuration from arguments or defaults
@@ -202,8 +236,15 @@ def main():
     logging.getLogger("__main__").setLevel(logging.DEBUG)
     logging.getLogger("tksample1").setLevel(logging.DEBUG)
 
-    # Create app with CLI mode flag
-    cli_mode = args.cli
+    # Determine execution mode with auto-fallback
+    try:
+        execution_mode = determine_execution_mode(args.cli, args.gui)
+    except RuntimeError as e:
+        logging.error(f"Failed to initialize requested mode: {e}")
+        exit(1)
+
+    # Create app with determined mode
+    cli_mode = execution_mode == "cli"
     App(config, cli_mode=cli_mode).exec()
 
 
