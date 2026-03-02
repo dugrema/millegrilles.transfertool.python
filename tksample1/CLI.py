@@ -116,6 +116,13 @@ class CLIHandler:
         print("MilleGrilles Transfer Tool - CLI Mode")
         print("=" * 60)
         print()
+        print("Connection commands:")
+        print("  connect    - Connect to server (re-authenticate if needed)")
+        print("  disconnect - Disconnect from server")
+        print()
+        print("Connection info:")
+        print("  status     - Show current connection status")
+        print()
         print("Remote commands:")
         print("  ls [path]  - List remote directory contents")
         print("  cd <path>  - Change remote directory (use '..' for parent)")
@@ -197,16 +204,80 @@ class CLIHandler:
             self.cmd_lls(args)
         elif command == "exit" or command == "quit":
             self.cmd_exit()
+        elif command == "disconnect":
+            self.cmd_disconnect()
+        elif command == "connect":
+            self.cmd_connect()
+        elif command == "status":
+            self.cmd_status()
         elif command == "help":
             self._print_help()
         else:
             print(f"Unknown command: {command}")
             print("Type 'help' for available commands")
 
+    def cmd_disconnect(self):
+        """Disconnect from server."""
+        self.__logger.info("Disconnecting from server...")
+        print("Disconnecting from server...")
+        self.__auth.deconnecter()
+        print("Disconnected from server")
+        print("Tip: Use 'connect' to re-authenticate if needed")
+        print()
+
+    def cmd_connect(self):
+        """Connect to server."""
+        self.__logger.info("Connecting to server...")
+        print("Connecting to server...")
+
+        # Check if already connected
+        if self.__auth.connect_event.is_set():
+            print("Already connected. Use 'disconnect' first to re-authenticate.")
+            return
+
+        # Check if credentials exist
+        if self.__auth.nom_usager and self.__auth.url_fiche_serveur:
+            try:
+                url_serveur = self.__auth.url_fiche_serveur.geturl()
+                self.__auth.authentifier(self.__auth.nom_usager, url_serveur)
+
+                # Wait for connection with timeout
+                connected = self.__auth.connect_event.wait(timeout=30)
+                if connected:
+                    print("Connection established")
+                else:
+                    print(
+                        "Connection timeout. Check credentials or server availability."
+                    )
+            except Exception as e:
+                self.__logger.exception("Connection failed")
+                print(f"Connection failed: {e}")
+        else:
+            print("No credentials found. Please use GUI mode to authenticate first.")
+
+    def cmd_status(self):
+        """Show connection status."""
+        connected = self.__auth.connect_event.is_set()
+        if connected:
+            print("Status: Connected")
+            if self.__auth.nom_usager:
+                print(f"User: {self.__auth.nom_usager}")
+        else:
+            print("Status: Disconnected")
+            if self.__auth.nom_usager:
+                print(f"User: {self.__auth.nom_usager} (use 'connect' to authenticate)")
+            else:
+                print("No credentials found. Use GUI mode to authenticate first.")
+
     def _print_help(self):
         """Print help information."""
         print()
         print("Available commands:")
+        print("Connection:")
+        print("  connect    - Connect to server (re-authenticate if needed)")
+        print("  disconnect - Disconnect from server")
+        print("  status     - Show current connection status")
+        print()
         print("Remote:")
         print("  ls [path]    - List remote directory contents")
         print("  cd <path>    - Change remote directory")
