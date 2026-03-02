@@ -135,11 +135,21 @@ class Authentification:
             return self.__sio.call(*args, **kwargs)  # type: ignore
 
     def init_config(self):
+        """Initialize configuration from saved settings.
+
+        In GUI mode: Auto-populate fields and auto-connect
+        In CLI mode: Load config but don't auto-connect
+        """
         if self.charger_configuration():
-            self.auth_frame.entry_nomusager.insert(0, self.nom_usager)  # type: ignore
-            serveur_url = self.url_fiche_serveur.hostname  # type: ignore
-            self.auth_frame.entry_serveur.insert(0, serveur_url)  # type: ignore
-            self.auth_frame.btn_connecter_usager()  # type: ignore
+            # Only auto-connect in GUI mode (when auth_frame exists)
+            if self.auth_frame is not None:
+                self.auth_frame.entry_nomusager.insert(0, self.nom_usager)  # type: ignore
+                serveur_url = self.url_fiche_serveur.hostname  # type: ignore
+                self.auth_frame.entry_serveur.insert(0, serveur_url)  # type: ignore
+                self.auth_frame.btn_connecter_usager()  # type: ignore
+            else:
+                # CLI mode: Configuration loaded but no auto-connect
+                self.__logger.info("Configuration loaded in CLI mode, no auto-connect")
 
     def charger_configuration(self):
         # Verifier si on a deja une connexion de configuree
@@ -253,7 +263,7 @@ class Authentification:
             sio = self.__sio
             self.__sio = None
             sio.disconnect()
-        self.auth_frame.set_etat(True)  # type: ignore
+
         self.connect_event.clear()
 
     def quit(self):
@@ -289,7 +299,8 @@ class Authentification:
                         if self.__sio:
                             self.__sio.disconnect()
                         self.__sio = None
-                        self.auth_frame.set_etat(False)  # type: ignore
+                        if self.auth_frame is not None:
+                            self.auth_frame.set_etat(False)  # type: ignore
 
                 if self.__sio is not None:
                     self.connect_event.set()  # Declarer la connexion prete a l'utilisation
@@ -396,7 +407,7 @@ class Authentification:
                     "Demande enregistrement usager %s avec code %s"
                     % (self.nom_usager, code_activation_ecran)
                 )
-                self.auth_frame.set_etat(code_activation=code_activation_ecran)  # type: ignore
+
                 commande_ajouter_csr = {"nomUsager": self.nom_usager, "csr": csr_pem}
                 # sio.emit('ecouterEvenementsActivationFingerprint', {'fingerprintPk': cle_publique}, callback=self.callback_activation)
                 # sio.emit('ajouterCsrRecovery', commande_ajouter_csr, callback=self.callback_csr)
@@ -430,7 +441,8 @@ class Authentification:
             except Exception as e:
                 sio.disconnect()
                 # http_session.close()
-                self.auth_frame.set_etat(False)  # type: ignore
+                if self.auth_frame is not None:
+                    self.auth_frame.set_etat(False)  # type: ignore
                 raise e
 
     def recevoir_certificat(self, data):
@@ -565,7 +577,8 @@ class Authentification:
         self.authentifier_socketio(sio)
 
         # Authentification reussie
-        self.auth_frame.set_etat(connecte=True)
+        if self.auth_frame is not None:
+            self.auth_frame.set_etat(connecte=True)
         self.__logger.debug("Upgrade auth socket.io OK")
 
     def initialiser_formatteur(self):
