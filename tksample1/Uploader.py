@@ -17,7 +17,6 @@ import requests
 import socketio.exceptions
 from millegrilles_messages.chiffrage.Mgs4 import (
     CipherMgs4,
-    CipherMgs4WithSecret,
     chiffrer_document,
     chiffrer_document_nouveau,
 )
@@ -259,10 +258,11 @@ class Uploader:
                 )  # type: ignore
                 fichiers_restants = len(self.__upload_queue)
                 if isinstance(self.__upload_en_cours, UploadRepertoire):
-                    fichiers_restants += (
-                        self.__upload_en_cours.nombre_sous_fichiers
-                        - self.__upload_en_cours.fichiers_uploades  # type: ignore[arg-type]
-                    )  # type: ignore
+                    if self.__upload_en_cours.nombre_sous_fichiers is not None:
+                        fichiers_restants += (
+                            self.__upload_en_cours.nombre_sous_fichiers
+                            - self.__upload_en_cours.fichiers_uploades
+                        )
                 if fichiers_restants > 0:
                     return "Uploading %d%% (%d fichiers restants)" % (
                         progres,
@@ -401,14 +401,15 @@ class Uploader:
                     # Delete le contenu partiellement uploade
                     batch_id = upload.batch_token["batchId"]
                     url_collections = self.__connexion.url_collections
-                    url_put = f"https://{url_collections.hostname}:444{url_collections.path}/fichiers/upload/{batch_id}"
-                    headers = {"x-token-jwt": upload.batch_token["token"]}
-                    response = self.__https_session.delete(url_put, headers=headers)
-                    if response.status_code not in (200, 404):
-                        self.__logger.warning(
-                            "Erreur suppression upload partiel, code : %d"
-                            % response.status_code
-                        )
+                    if url_collections is not None and self.__https_session is not None:
+                        url_put = f"https://{url_collections.hostname}:444{url_collections.path}/fichiers/upload/{batch_id}"
+                        headers = {"x-token-jwt": upload.batch_token["token"]}
+                        response = self.__https_session.delete(url_put, headers=headers)
+                        if response.status_code not in (200, 404):
+                            self.__logger.warning(
+                                "Erreur suppression upload partiel, code : %d"
+                                % response.status_code
+                            )
 
                     # Reset token
                     upload.batch_token = None
@@ -429,14 +430,16 @@ class Uploader:
             self.__connexion.authenticate(self.__https_session)
 
         # First pass, encrypt the file / get the fuuid
+        if self.__connexion.ca is None:
+            raise Exception("CA certificate not available")
         cle_ca = self.__connexion.ca.get_public_x25519()
         cipher = CipherMgs4(cle_ca)
 
+        hacheur = Hacheur(hashing_code="blake2b-512", encoding="base58btc")
         with tempfile.NamedTemporaryFile(dir=self.__tmp_path, delete=False) as tmpfile:
             with open(upload.path, "rb") as fichier:
                 while cipher.hachage is None:
                     # Preparer chiffrage
-                    hacheur = Hacheur(hashing_code="blake2b-512", encoding="base58btc")
                     prepare_file(self.__stop_event, fichier, tmpfile, cipher, hacheur)
             hachage_original = hacheur.finalize()
             secret_key = cipher.cle_secrete
@@ -507,6 +510,8 @@ class Uploader:
             "signature": signature_cle.to_dict(),
             "cles": cles_chiffrees,
         }
+        if self.__connexion.formatteur is None:
+            raise Exception("Formatter not available")
         transaction_cle, message_id = self.__connexion.formatteur.signer_message(
             Constantes.KIND_COMMANDE,
             transaction_cle,
@@ -543,10 +548,14 @@ class Uploader:
 
     def creer_collection(self, nom: str, cuuid_parent: Optional[str] = None) -> str:
         metadata = {"nom": nom}
+        if self.__connexion.ca is None:
+            raise Exception("CA certificate not available")
         cipher, doc_chiffre = chiffrer_document_nouveau(self.__connexion.ca, metadata)
         info_dechiffrage = cipher.get_info_dechiffrage(
             self.__connexion.get_certificats_chiffrage()
         )
+        if info_dechiffrage is None:
+            raise Exception("Failed to get decryption info")
         cle_ca = info_dechiffrage["cle"]
         cles_dechiffrage = info_dechiffrage["cles"]
 
@@ -571,6 +580,8 @@ class Uploader:
             "signature": signature_cle.to_dict(),
             "cles": cles_dechiffrage,
         }
+        if self.__connexion.formatteur is None:
+            raise Exception("Formatter not available")
         commande_cle, message_id = self.__connexion.formatteur.signer_message(
             Constantes.KIND_COMMANDE,
             commande_cle,
@@ -586,6 +597,8 @@ class Uploader:
             attachments={"cle": commande_cle},
         )
 
+        if reponse is None:
+            raise Exception("No response from server")
         contenu = json.loads(reponse["contenu"])
         cuuid = contenu["tuuid"]
 
