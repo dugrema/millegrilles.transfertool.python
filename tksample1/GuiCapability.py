@@ -63,7 +63,8 @@ def has_tkinter() -> Tuple[bool, Optional[str]]:
 
         try:
             # Use a hidden root to test initialization
-            tk.Tk()
+            root = tk.Tk()
+            root.destroy()
             return True, None
         except Exception as e:
             return False, str(e)
