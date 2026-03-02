@@ -549,7 +549,8 @@ class CLIHandler:
             type_node = item.get("type_node", "")
             if type_node not in ["Collection", "Repertoire"]:
                 # Size is stored in metadata, not directly in item
-                size = item.get("metadata", {}).get("taille", 0)
+                version_courante = item["version_courante"]
+                size = item.get("metadata", {}).get("taille", version_courante["taille"])
                 size_str = self._format_size(size)
             else:
                 size_str = "-"
