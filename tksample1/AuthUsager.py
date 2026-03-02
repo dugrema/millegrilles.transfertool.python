@@ -341,7 +341,10 @@ class Authentification:
                             self.__sio.disconnect()
                         self.__sio = None
                         if self.auth_frame is not None:
-                            self.auth_frame.set_etat(False)  # type: ignore
+                            if hasattr(self.auth_frame, "set_connection_status"):
+                                self.auth_frame.set_connection_status(connected=False)  # type: ignore
+                            elif hasattr(self.auth_frame, "set_etat"):
+                                self.auth_frame.set_etat(False)  # type: ignore
 
                 if self.__sio is not None:
                     self.connect_event.set()  # Declarer la connexion prete a l'utilisation
@@ -636,7 +639,10 @@ class Authentification:
 
         # Authentification reussie
         if self.auth_frame is not None:
-            self.auth_frame.set_etat(connecte=True)
+            if hasattr(self.auth_frame, "set_connection_status"):
+                self.auth_frame.set_connection_status(connected=True)  # type: ignore
+            elif hasattr(self.auth_frame, "set_etat"):
+                self.auth_frame.set_etat(connecte=True)  # type: ignore
         self.__logger.debug("Upgrade auth socket.io OK")
 
     def initialiser_formatteur(self):
