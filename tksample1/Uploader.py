@@ -150,8 +150,7 @@ class UploadFichier:
         self.upload_complete.wait()
 
 
-# UPLOAD_SPLIT_SIZE = 100_000_000
-UPLOAD_SPLIT_SIZE = 1_000_000
+UPLOAD_SPLIT_SIZE = 100_000_000
 
 
 class Uploader:
