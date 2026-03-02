@@ -552,14 +552,26 @@ class CLIHandler:
                 # Relative to current local directory
                 new_dir = self.__local_dir / path
 
-            # Validate directory exists
-            if not new_dir.exists():
-                print(f"Error: Local directory '{path}' does not exist")
-                return
+            # Check if it's a symlink
+            is_symlink = new_dir.is_symlink()
 
-            if not new_dir.is_dir():
-                print(f"Error: '{path}' is not a directory")
-                return
+            # Validate: must be a directory or a symlink to a directory
+            if not is_symlink:
+                # Regular path: check if it exists and is a directory
+                if not new_dir.exists():
+                    print(f"Error: Local directory '{path}' does not exist")
+                    return
+                if not new_dir.is_dir():
+                    print(f"Error: '{path}' is not a directory")
+                    return
+            else:
+                # Symlink: check if it points to a directory
+                # is_dir() follows symlinks by default
+                if not new_dir.is_dir():
+                    print(
+                        f"Error: '{path}' is not a directory or points to non-existent target"
+                    )
+                    return
 
             self.__local_dir = new_dir.resolve()
             print(f"Changed local directory to {self.__local_dir}")
