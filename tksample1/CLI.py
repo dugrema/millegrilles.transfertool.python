@@ -537,23 +537,53 @@ class CLIHandler:
         print(f"{'Type':<6} {'Name':<40} {'Size':>15}")
         print("-" * 62)
 
+        # Separate directories and files
+        directories = []
+        files = []
+
         for item in repertoire.fichiers:
-            # Determine type (directory or file)
+            type_node = item.get("type_node", "")
+            if type_node in ["Collection", "Repertoire"]:
+                directories.append(item)
+            else:
+                files.append(item)
+
+        # Sort directories case-insensitively by name
+        directories.sort(key=lambda x: x.get("metadata", {}).get("nom", "").lower())
+
+        # Sort files case-insensitively by name
+        files.sort(key=lambda x: x.get("metadata", {}).get("nom", "").lower())
+
+        # Display directories first
+        for item in directories:
             type_node = item.get("type_node", "")
             item_type = "DIR " if type_node in ["Collection", "Repertoire"] else ""
 
             # Get name
             name = item.get("metadata", {}).get("nom", "Unknown")
 
-            # Get size (only for files)
+            # Get size (directories show "-")
+            size_str = "-"
+
+            # Print formatted line
+            print(f"{item_type:<6} {name:<40} {size_str:>15}")
+
+        # Display files
+        for item in files:
             type_node = item.get("type_node", "")
+            item_type = ""
+
+            # Get name
+            name = item.get("metadata", {}).get("nom", "Unknown")
+
+            # Get size (only for files)
             if type_node not in ["Collection", "Repertoire"]:
                 # Size is stored in metadata, not directly in item
                 version_courante = item["version_courante"]
-                size = item.get("metadata", {}).get("taille", version_courante["taille"])
+                size = item.get("metadata", {}).get(
+                    "taille", version_courante["taille"]
+                )
                 size_str = self._format_size(size)
-            else:
-                size_str = "-"
 
             # Print formatted line
             print(f"{item_type:<6} {name:<40} {size_str:>15}")
