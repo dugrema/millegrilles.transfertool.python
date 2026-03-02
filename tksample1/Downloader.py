@@ -1,11 +1,13 @@
 import logging
 import pathlib
 import time
+import warnings
 from threading import Event, Thread
 from typing import Optional, Union
 from urllib import parse
 
 import requests
+import urllib3.exceptions
 from millegrilles_messages.chiffrage.Mgs4 import DecipherMgs4
 from millegrilles_messages.messages import Constantes
 from requests import HTTPError
@@ -13,6 +15,18 @@ from wakepy import keep
 
 from tksample1.AuthUsager import Authentification
 from tksample1.Navigation import sync_collection
+
+# Suppress wakepy ActivationWarning when DBus services are not available
+warnings.filterwarnings(
+    "ignore",
+    message="Could not activate wakepy Mode",
+)
+# Suppress urllib3 InsecureRequestWarning for unverified HTTPS requests
+warnings.filterwarnings(
+    "ignore",
+    message="Unverified HTTPS request",
+    category=urllib3.exceptions.InsecureRequestWarning,
+)
 
 
 class DownloadFichier:
