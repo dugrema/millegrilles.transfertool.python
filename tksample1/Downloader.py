@@ -100,6 +100,12 @@ class Downloader:
         self.__https_session: Optional[requests.Session] = None
         self.__progress_wrapper = progress_wrapper  # CLI progress bar wrapper
 
+        # Start the download thread
+        self.__thread = Thread(
+            name="downloader", target=self.download_thread, daemon=False
+        )
+        self.__thread.start()
+
     def __update_progress(self, phase: str, current: int):
         """Update progress for the specified phase.
 
@@ -112,15 +118,6 @@ class Downloader:
                 self.__progress_wrapper.update_transfer(current)
             elif phase == "encrypt":
                 self.__progress_wrapper.update_encrypt(current)
-
-        self.__thread = Thread(
-            name="downloader", target=self.download_thread, daemon=False
-        )
-        self.__thread.start()
-        # self.__thread_download_status = Thread(name="downloader_status", target=self.__download_label_thread, daemon=False)
-        # self.__thread_download_status.start()
-
-        # self.__destination = pathlib.Path('/tmp')
 
     def quit(self):
         self.__download_pret.set()
@@ -344,7 +341,7 @@ class Downloader:
                     chunks_done += 1
                     item.taille_recue += len(chunk)
                     if self.__progress_wrapper:
-                        self.__update_progress("transfer", item.taille_recue)
+                        self.__update_progress("transfer", len(chunk))
                     if self.__stop_event.is_set() is True:
                         path_reception_work.unlink()
                         raise Exception("Stopping")
@@ -404,7 +401,7 @@ def dechiffrer_in_place(item, path_reception, progress_wrapper=None):
                 position_write += len(chunk_dechiffre)
                 fichier.seek(position_read)
                 if progress_wrapper:
-                    progress_wrapper.update_encrypt(position_write)
+                    progress_wrapper.update_encrypt(len(chunk_dechiffre))
 
         chunk_dechiffre = decipher.finalize()
         if chunk_dechiffre:
@@ -412,7 +409,7 @@ def dechiffrer_in_place(item, path_reception, progress_wrapper=None):
             fichier.write(chunk_dechiffre)
             position_write += len(chunk_dechiffre)
             if progress_wrapper:
-                progress_wrapper.update_encrypt(position_write)
+                progress_wrapper.update_encrypt(len(chunk_dechiffre))
 
         # Tronquer fichier a la position d'ecriture courante
         fichier.truncate()

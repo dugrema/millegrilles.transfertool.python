@@ -299,9 +299,14 @@ class UploadProgressBar:
         self.wrapper = ProgressBarWrapper(f"Uploading '{filename}'")
         self.encrypted_size: Optional[int] = None
 
-    def start_encrypt(self):
-        """Start the encryption phase."""
-        self.wrapper.encrypt_phase(total=None, desc="Encrypting")
+    def start_encrypt(self, total: Optional[int] = None):
+        """
+        Start the encryption phase.
+
+        Args:
+            total: Optional initial file size for progress bar estimate
+        """
+        self.wrapper.encrypt_phase(total=total, desc="Encrypting")
 
     def update_encrypt(self, amount: int):
         """

@@ -709,7 +709,7 @@ class CLIHandler:
                 # Start download phase (transfer from server)
                 download_progress.start_download(encrypted_size)
 
-                # Set progress wrapper on transfer handler
+                # Start decrypt phase before download beginsress wrapper on transfer handler
                 self.__transfer_handler.set_progress_wrappers(
                     downloader_progress_wrapper=download_progress.wrapper
                 )
@@ -788,11 +788,14 @@ class CLIHandler:
             if path_upload.is_file():
                 print(f"Uploading file '{local_path}'...")
 
+                # Get file size for progress bar
+                file_size = path_upload.stat().st_size
+
                 # Create progress bar for upload
                 upload_progress = UploadProgressBar(path_upload.name)
 
-                # Start encryption phase
-                upload_progress.start_encrypt()
+                # Start encryption phase with file size
+                upload_progress.start_encrypt(total=file_size)
 
                 # Set progress wrapper on transfer handler
                 self.__transfer_handler.set_progress_wrappers(

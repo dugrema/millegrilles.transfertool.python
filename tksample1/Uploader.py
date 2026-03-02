@@ -497,6 +497,12 @@ class Uploader:
             fuuid = info_dechiffrage["hachage_bytes"]
             encrypted_size = cipher.taille_chiffree
 
+            # Start transfer phase progress bar after encryption completes
+            if self.__progress_wrapper:
+                self.__progress_wrapper.transfer_phase(
+                    total=encrypted_size, desc="Uploading"
+                )
+
             # Preparer transaction
             stat_fichier = upload.path.stat()
             taille = stat_fichier.st_size
@@ -709,7 +715,7 @@ def file_iterator(
         chunk_size = len(chunk)
         upload.add_chunk_uploade(chunk_size)
         if on_progress:
-            on_progress(current_output_size + chunk_size)
+            on_progress(chunk_size)
         if len(chunk) > 0:
             current_output_size += len(chunk)
             yield chunk
@@ -748,7 +754,7 @@ def prepare_file(
             current_output_size += len(chunk)
             fp_out.write(chunk)
             if on_progress:
-                on_progress(current_output_size)
+                on_progress(len(chunk))
 
 
 def path_key(item: pathlib.Path):
