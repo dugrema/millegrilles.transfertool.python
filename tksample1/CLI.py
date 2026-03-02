@@ -59,6 +59,8 @@ class CLIHandler:
                 command_input = self._get_command_input()
                 if command_input is None:
                     break
+                if command_input == "":
+                    continue
 
                 self._process_command(command_input)
             except KeyboardInterrupt:
@@ -147,21 +149,42 @@ class CLIHandler:
         print("Type 'help' for more information")
         print()
 
+    def _get_prompt(self) -> str:
+        """Generate the prompt string for display.
+
+        Returns:
+            Formatted prompt string in the format: user@hostname:path>
+        """
+        # Get remote path from navigation
+        remote_path = self._get_current_path()
+
+        # Get username and hostname from auth
+        username = self.__auth.nom_usager or "user"
+        url_fiche_serveur = self.__auth.url_fiche_serveur
+        if url_fiche_serveur is not None:
+            # url_fiche_serveur is already a ParseResult object
+            hostname = url_fiche_serveur.hostname or "localhost"
+        else:
+            hostname = "localhost"
+
+        return f"{username}@{hostname}:{remote_path}> "
+
+    def _print_updated_prompt(self):
+        """Print the current prompt to show updated path.
+
+        This is called after cd commands to immediately show the updated prompt
+        without waiting for the next command input.
+        """
+        print()
+        print(self._get_prompt(), end="")
+
     def _get_command_input(self) -> Optional[str]:
         """Get and validate command input from user."""
         try:
-            # Show prompt with both remote and local paths
-            remote_path = self._get_current_path()
-            local_path = str(self.__local_dir)
-
-            # Truncate long paths for display
-            if len(local_path) > 40:
-                local_path = "..." + local_path[-37:]
-
-            command = input(f"mgtransfer{remote_path}> [{local_path}]> ").strip()
+            command = input(self._get_prompt()).strip()
 
             if not command:
-                return None  # Empty command, continue loop
+                return ""  # Empty command, continue loop
 
             return command
         except EOFError:
@@ -621,7 +644,7 @@ class CLIHandler:
             for item in self.__navigation.breadcrumb:
                 name = item.get("metadata", {}).get("nom", "Unknown")
                 path_parts.append(name)
-            self.__current_path_display = " / ".join(path_parts)
+            self.__current_path_display = "/".join(path_parts)
 
     def _get_current_repertoire_from_navigation(self) -> Repertoire:
         """Get the current directory from Navigation.
