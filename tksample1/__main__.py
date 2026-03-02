@@ -102,7 +102,9 @@ class App:
 
         # Choose mode
         if self.cli_mode:
-            self.cli_handler = CLIHandler(self.__stop_event, self.auth, self.navigation)
+            self.cli_handler = CLIHandler(
+                self.__stop_event, self.auth, self.navigation, self.transfer_handler
+            )
         else:
             self.window = Window(
                 self.__stop_event, self.auth, self.navigation, self.transfer_handler
