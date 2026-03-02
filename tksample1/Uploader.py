@@ -45,6 +45,7 @@ class UploadRepertoire:
         self.nombre_sous_fichiers = None
         self.__taille_uploade = 0
         self.fichiers_uploades = 0
+        self.upload_complete = Event()
 
     def add_chunk_uploade(self, taille: int):
         if self.__parent is not None:
@@ -87,6 +88,10 @@ class UploadRepertoire:
 
         return taille_fichiers, compte_fichiers
 
+    def wait(self):
+        """Wait for upload to complete."""
+        self.upload_complete.wait()
+
 
 class UploadFichier:
     def __init__(
@@ -101,6 +106,7 @@ class UploadFichier:
         self.taille = path_fichier.stat().st_size
         self.__taille_uploade = 0
         self.batch_token = None
+        self.upload_complete = Event()
 
     def add_chunk_uploade(self, taille: int):
         if self.__parent:
@@ -126,6 +132,10 @@ class UploadFichier:
         if guess is None:
             return "application/octet-stream"
         return guess
+
+    def wait(self):
+        """Wait for upload to complete."""
+        self.upload_complete.wait()
 
 
 # UPLOAD_SPLIT_SIZE = 100_000_000
@@ -368,7 +378,7 @@ class Uploader:
                     self.upload_fichier(fichier_item)
                 upload.add_fichiers_traite(1)
 
-        pass
+        upload.upload_complete.set()
 
     def upload_fichier(self, upload: UploadFichier):
         retry_count = 0
@@ -381,6 +391,7 @@ class Uploader:
                     )
                     upload.reset_taille_uploade()
                 self.__upload_fichier_1pass(upload)
+                upload.upload_complete.set()
                 break
             except Exception:
                 self.__logger.exception(
@@ -405,6 +416,8 @@ class Uploader:
                 # Attendre pour retry
                 self.__stop_event.wait(timeout=interval_retry.seconds)
                 retry_count += 1
+        else:
+            upload.upload_complete.set()
 
     def __upload_fichier_1pass(self, upload: UploadFichier):
         if self.__certificats_chiffrage is None:

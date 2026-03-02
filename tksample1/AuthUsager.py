@@ -50,6 +50,9 @@ class Authentification:
             home = pathlib.Path.home()
             self.__path_tmp = pathlib.Path(home, ".millegrilles", "tmp")
 
+        # Ensure tmp directory exists
+        self.__path_tmp.mkdir(parents=True, exist_ok=True)
+
         self.thread = Thread(name="Authentification", target=self.run, daemon=False)
         self.__pret = Event()
         self.__entretien_event = Event()

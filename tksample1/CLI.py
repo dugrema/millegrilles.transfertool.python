@@ -162,6 +162,8 @@ class CLIHandler:
             self.cmd_pwd()
         elif command == "get":
             self.cmd_get(args)
+        elif command == "put":
+            self.cmd_put(args)
         elif command == "exit" or command == "quit":
             self.cmd_exit()
         elif command == "help":
@@ -178,6 +180,7 @@ class CLIHandler:
         print('  cd <path>  - Change directory (use quotes for spaces: cd "dir name")')
         print("  pwd        - Print current working directory")
         print("  get <file> - Download file from current directory")
+        print("  put <path> - Upload file/directory to current directory")
         print("  exit       - Exit CLI")
         print()
 
@@ -422,6 +425,62 @@ class CLIHandler:
             print(f"Error: File '{filename}' already exists in download directory")
         except Exception as e:
             self.__logger.exception("Error during get operation")
+            print(f"Error: {e}")
+
+    def cmd_put(self, args: List[str]):
+        """Upload file or directory to current directory.
+
+        Args:
+            args: List containing the local file/directory path to upload
+        """
+        if not args:
+            print("Error: put requires a local file/directory path argument")
+            print("Usage: put <local_path>")
+            return
+
+        local_path = args[0]
+
+        try:
+            # Get current directory information
+            connexion = self.__navigation.connexion
+            if connexion is None or connexion.url_fiche_serveur is None:
+                print("Error: Not connected to server")
+                return
+
+            # Check if local path exists
+            import pathlib
+
+            path_upload = pathlib.Path(local_path)
+            if not path_upload.exists():
+                print(f"Error: Local path '{local_path}' does not exist")
+                return
+
+            # Get current directory cuuid from navigation breadcrumb
+            cuuid_parent: str | None = None
+            if len(self.__navigation.breadcrumb) > 0:
+                cuuid_parent = self.__navigation.breadcrumb[-1].get("tuuid")
+
+            # Distinguish between file and directory upload
+            if path_upload.is_dir():
+                print(f"Uploading directory '{local_path}'...")
+                upload_item = self.__transfer_handler.ajouter_upload(
+                    cuuid_parent or "", str(path_upload)
+                )
+            elif path_upload.is_file():
+                print(f"Uploading file '{local_path}'...")
+                upload_item = self.__transfer_handler.ajouter_upload(
+                    cuuid_parent or "", str(path_upload)
+                )
+            else:
+                print(f"Error: '{local_path}' is neither a file nor a directory")
+                return
+
+            # Wait for upload to complete
+            upload_item.wait()
+            print(f"Upload complete: '{local_path}'")
+
+        except Exception as e:
+            self.__logger.exception("Error during put operation")
             print(f"Error: {e}")
 
     def _format_size(self, size: int) -> str:
