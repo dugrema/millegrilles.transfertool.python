@@ -8,14 +8,13 @@ This module provides the main entry point for the application with support for:
 
 import argparse
 import logging
-import os
 import time
 from threading import Event, Thread, active_count, enumerate
 from typing import Optional
 
 from tksample1.CLI import CLIHandler
 from tksample1.Configuration import Configuration
-from tksample1.GuiCapability import attempt_gui_initialization, determine_execution_mode
+from tksample1.GuiCapability import determine_execution_mode
 
 
 class Window:
@@ -76,7 +75,9 @@ class Window:
         )
         self.__frame_notebook.add(self.__frame_navigation, text="Navigation")
 
-        self.__frame_transfert = TransferFrame(transfer_handler)
+        self.__frame_transfert = TransferFrame(
+            transfer_handler, master=self.__frame_notebook
+        )
         self.__frame_notebook.add(self.__frame_transfert, text="Transferts")
 
         # Wiring du frame dans Authentification
