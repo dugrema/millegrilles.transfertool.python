@@ -84,6 +84,7 @@ millegrilles.transfertool.python/
     ├── AuthUsager.py             # User authentication module
     ├── CLI.py                    # CLI handler for text-based interface
     ├── Configuration.py          # Configuration management
+    ├── ConnectionFrame.py        # Connection UI frame (tabbed interface)
     ├── Downloader.py             # File download functionality
     ├── FileTransfer.py           # Main file transfer UI handler
     ├── GuiCapability.py          # GUI detection and auto-fallback utility
@@ -100,6 +101,7 @@ millegrilles.transfertool.python/
 | **AuthUsager.py** | User authentication module handling MilleGrilles certificate management, secure communication, and session management. |
 | **CLI.py** | Command-line interface handler providing text-based file transfer operations with sftp-like commands. |
 | **Configuration.py** | Configuration management for application settings and directories. |
+| **ConnectionFrame.py** | GUI frame for connection management as a notebook tab, providing username/server URL inputs and connection status display. |
 | **Downloader.py** | File download functionality with progress tracking, encrypted file handling, and collection synchronization. |
 | **FileTransfer.py** | Main GUI component implementing the file transfer interface, coordinating uploads and downloads. |
 | **GuiCapability.py** | GUI detection utility for auto-fallback to CLI mode in headless environments. |

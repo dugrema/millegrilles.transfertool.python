@@ -36,7 +36,7 @@ class TestCLIFallback(unittest.TestCase):
         """Test that GUI modules can be imported when tkinter is available."""
         import tkinter as tk
 
-        from tksample1.AuthUsager import AuthFrame
+        from tksample1.ConnectionFrame import ConnectionFrame
         from tksample1.FileTransfer import TransferFrame
         from tksample1.Navigation import NavigationFrame
         from tksample1.Uploader import UploaderFrame

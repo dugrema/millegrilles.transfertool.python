@@ -36,53 +36,48 @@ class Window:
         import tkinter as tk
         from tkinter import ttk
 
-        from tksample1.AuthFrame import AuthFrame
+        from tksample1.ConnectionFrame import ConnectionFrame
         from tksample1.NavigationFrame import NavigationFrame
         from tksample1.TransferFrame import TransferFrame
 
         self._tk_root = tk.Tk(*args, **kwargs)
 
         self._tk_root.title("Transfer Tool - MilleGrilles")
-        self._tk_root.geometry("800x600")
-        self._tk_root.minsize(600, 400)
+        self._tk_root.geometry("900x700")  # Increased size to accommodate tabs
+        self._tk_root.minsize(700, 500)
 
         # Bind configure event for resize
         self._tk_root.bind("<Configure>", self.on_resize)
 
         # Configure grid weights for main window
-        self._tk_root.grid_rowconfigure(0, weight=0)
-        self._tk_root.grid_rowconfigure(1, weight=1)
+        self._tk_root.grid_rowconfigure(0, weight=1)
         self._tk_root.grid_columnconfigure(0, weight=1)
 
         self.auth = auth
         self.auth_frame = None
 
         self.__frame_notebook = ttk.Notebook(self._tk_root)
+        self.__frame_notebook.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
 
-        self.__frame_auth = AuthFrame(auth)
-        self.__frame_auth.grid(row=0, column=0, sticky="nsew")
+        # Add Connection tab
+        self.__frame_connection = ConnectionFrame(auth, master=self.__frame_notebook)
+        self.__frame_notebook.add(self.__frame_connection, text="Connection")
 
-        self.__frame_notebook.grid(
-            row=1,
-            column=0,
-            sticky="nsew",
-            padx=5,
-            pady=5,
-        )
-
+        # Add Navigation tab
         self.__frame_navigation = NavigationFrame(
             navigation, master=self.__frame_notebook
         )
         self.__frame_notebook.add(self.__frame_navigation, text="Navigation")
 
+        # Add Transfers tab
         self.__frame_transfert = TransferFrame(
             transfer_handler, master=self.__frame_notebook
         )
         self.__frame_notebook.add(self.__frame_transfert, text="Transferts")
 
-        # Wiring du frame dans Authentification
-        self.auth_frame = self.__frame_auth
-        self.auth.auth_frame = self.__frame_auth
+        # Wiring frames to backend components
+        self.auth_frame = self.__frame_connection
+        self.auth.auth_frame = self.__frame_connection
         navigation.nav_frame = self.__frame_navigation
         transfer_handler.transfer_frame = self.__frame_transfert
 

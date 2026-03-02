@@ -153,10 +153,20 @@ class Authentification:
         if self.charger_configuration():
             # Only auto-connect in GUI mode (when auth_frame exists)
             if self.auth_frame is not None:
-                self.auth_frame.entry_nomusager.insert(0, self.nom_usager)  # type: ignore
-                serveur_url = self.url_fiche_serveur.hostname  # type: ignore
-                self.auth_frame.entry_serveur.insert(0, serveur_url)  # type: ignore
-                self.auth_frame.btn_connecter_usager()  # type: ignore
+                # Check if it's ConnectionFrame (new) or AuthFrame (old)
+                if hasattr(self.auth_frame, "username_entry"):
+                    # ConnectionFrame
+                    self.auth_frame.username_entry.insert(0, self.nom_usager)  # type: ignore
+                    if self.url_fiche_serveur:
+                        self.auth_frame.url_entry.insert(
+                            0, self.url_fiche_serveur.geturl()
+                        )  # type: ignore
+                elif hasattr(self.auth_frame, "entry_nomusager"):
+                    # AuthFrame (backward compatibility)
+                    self.auth_frame.entry_nomusager.insert(0, self.nom_usager)  # type: ignore
+                    serveur_url = self.url_fiche_serveur.hostname  # type: ignore
+                    self.auth_frame.entry_serveur.insert(0, serveur_url)  # type: ignore
+                # Don't auto-connect, let user click Connect button
             else:
                 # CLI mode: Configuration loaded but no auto-connect
                 self.__logger.info("Configuration loaded in CLI mode, no auto-connect")
@@ -190,6 +200,24 @@ class Authentification:
         }
         with open(self.__path_config, "wt") as fichier:
             json.dump(config, fichier)
+
+    def get_saved_username(self) -> Optional[str]:
+        """Get saved username from configuration."""
+        try:
+            with open(self.__path_config, "rt") as fichier:
+                config = json.load(fichier)
+            return config.get("nom_usager")
+        except (FileNotFoundError, json.JSONDecodeError):
+            return None
+
+    def get_saved_url(self) -> Optional[str]:
+        """Get saved server URL from configuration."""
+        try:
+            with open(self.__path_config, "rt") as fichier:
+                config = json.load(fichier)
+            return config.get("url_fiche_serveur")
+        except (FileNotFoundError, json.JSONDecodeError):
+            return None
 
     def effacer_usager(self):
         self.nom_usager = None
@@ -439,6 +467,14 @@ class Authentification:
                     callback=self.callback_csr,
                 )
 
+                # Update UI to show confirmation code
+                if self.auth_frame is not None:
+                    if hasattr(self.auth_frame, "set_connection_status"):
+                        self.auth_frame.set_connection_status(
+                            connected=False,
+                            code_activation=code_activation_ecran,  # type: ignore
+                        )
+
                 event_certificat = Event()
 
                 @sio.on("*")
@@ -457,7 +493,10 @@ class Authentification:
                 sio.disconnect()
                 # http_session.close()
                 if self.auth_frame is not None:
-                    self.auth_frame.set_etat(False)  # type: ignore
+                    if hasattr(self.auth_frame, "set_connection_status"):
+                        self.auth_frame.set_connection_status(connected=False)  # type: ignore
+                    elif hasattr(self.auth_frame, "set_etat"):
+                        self.auth_frame.set_etat(False)  # type: ignore
                 raise e
 
     def recevoir_certificat(self, data):
@@ -485,6 +524,11 @@ class Authentification:
             raise Exception("erreur cle/certificat ne correspondent pas")
 
         self._cle_certificat = clecert
+
+        # Update UI after successful authentication
+        if self.auth_frame is not None:
+            if hasattr(self.auth_frame, "set_connection_status"):
+                self.auth_frame.set_connection_status(connected=True)  # type: ignore
 
     def callback_csr(self, *args):
         pass
