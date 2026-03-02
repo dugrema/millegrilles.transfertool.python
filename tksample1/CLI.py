@@ -1,4 +1,5 @@
 import logging
+import pathlib
 from shlex import split as shlex_split
 from threading import Event, Lock
 from typing import List, Optional
@@ -37,6 +38,11 @@ class CLIHandler:
         # Track navigation state
         # We'll access Navigation's breadcrumb and repertoire directly
         self.__current_path_display: str = "(Favoris)"
+
+        # Local directory tracking (for lcd, lls, lpwd)
+        self.__local_dir: pathlib.Path = (
+            self.__auth.download_path
+        )  # Initialize with download directory
 
     def run(self):
         """Main CLI loop."""
@@ -110,11 +116,22 @@ class CLIHandler:
         print("MilleGrilles Transfer Tool - CLI Mode")
         print("=" * 60)
         print()
-        print("Available commands:")
-        print("  ls [path]  - List directory contents")
-        print("  cd <path>  - Change directory (use '..' for parent)")
-        print("  pwd        - Print working directory")
-        print("  get <file> - Download file from current directory")
+        print("Remote commands:")
+        print("  ls [path]  - List remote directory contents")
+        print("  cd <path>  - Change remote directory (use '..' for parent)")
+        print("  pwd        - Print remote working directory")
+        print()
+        print("Local commands:")
+        print("  lls [pattern]  - List local directory contents")
+        print("  lcd [path]     - Change local directory (no path = home)")
+        print("  lpwd           - Print local working directory")
+        print()
+        print("Transfer commands:")
+        print("  get <file> - Download file from remote to local directory")
+        print("  put <file> - Upload file from local directory to remote")
+        print()
+        print("Other commands:")
+        print("  mkdir <name> - Create directory on remote")
         print("  exit       - Exit CLI")
         print()
         print("Type 'help' for more information")
@@ -123,9 +140,15 @@ class CLIHandler:
     def _get_command_input(self) -> Optional[str]:
         """Get and validate command input from user."""
         try:
-            # Show prompt with current path
-            current_path = self._get_current_path()
-            command = input(f"mgtransfer{current_path}> ").strip()
+            # Show prompt with both remote and local paths
+            remote_path = self._get_current_path()
+            local_path = str(self.__local_dir)
+
+            # Truncate long paths for display
+            if len(local_path) > 40:
+                local_path = "..." + local_path[-37:]
+
+            command = input(f"mgtransfer{remote_path}> [{local_path}]> ").strip()
 
             if not command:
                 return None  # Empty command, continue loop
@@ -166,6 +189,12 @@ class CLIHandler:
             self.cmd_put(args)
         elif command == "mkdir":
             self.cmd_mkdir(args)
+        elif command == "lcd":
+            self.cmd_lcd(args)
+        elif command == "lpwd":
+            self.cmd_lpwd()
+        elif command == "lls":
+            self.cmd_lls(args)
         elif command == "exit" or command == "quit":
             self.cmd_exit()
         elif command == "help":
@@ -178,13 +207,23 @@ class CLIHandler:
         """Print help information."""
         print()
         print("Available commands:")
-        print("  ls [path]  - List directory contents")
-        print('  cd <path>  - Change directory (use quotes for spaces: cd "dir name")')
-        print("  pwd        - Print current working directory")
-        print("  get <file> - Download file from current directory")
-        print("  put <path> - Upload file/directory to current directory")
-        print("  mkdir <name> - Create new directory/collection in current directory")
-        print("  exit       - Exit CLI")
+        print("Remote:")
+        print("  ls [path]    - List remote directory contents")
+        print("  cd <path>    - Change remote directory")
+        print("  pwd          - Print remote working directory")
+        print()
+        print("Local:")
+        print("  lls [pat]    - List local directory (glob pattern)")
+        print("  lcd [path]   - Change local directory")
+        print("  lpwd         - Print local working directory")
+        print()
+        print("Transfer:")
+        print("  get <file>   - Download file to local directory")
+        print("  put <path>   - Upload file from local directory")
+        print("  mkdir <name> - Create remote directory")
+        print()
+        print("Other:")
+        print("  exit         - Exit CLI")
         print()
 
     def cmd_ls(self, args: List[str]):
@@ -409,12 +448,12 @@ class CLIHandler:
             if type_node in ["Collection", "Repertoire"]:
                 print(f"Downloading directory '{filename}'...")
                 download_item = self.__transfer_handler.ajouter_download_repertoire(
-                    target_item, connexion.download_path
+                    target_item, self.__local_dir
                 )
             elif type_node == "Fichier":
                 print(f"Downloading file '{filename}'...")
                 download_item = self.__transfer_handler.ajouter_download_fichier(
-                    target_item, connexion.download_path
+                    target_item, self.__local_dir
                 )
             else:
                 print(f"Error: Unsupported type '{type_node}'")
@@ -450,8 +489,9 @@ class CLIHandler:
                 print("Error: Not connected to server")
                 return
 
-            # Check if local path exists
-            import pathlib
+            # Resolve relative paths against local directory
+            if not pathlib.Path(local_path).is_absolute():
+                local_path = str(self.__local_dir / local_path)
 
             path_upload = pathlib.Path(local_path)
             if not path_upload.exists():
@@ -485,6 +525,91 @@ class CLIHandler:
         except Exception as e:
             self.__logger.exception("Error during put operation")
             print(f"Error: {e}")
+
+    def cmd_lcd(self, args: List[str]):
+        """Change local working directory.
+
+        Args:
+            args: Optional path to change to. If empty, changes to home directory.
+        """
+        try:
+            if not args:
+                # Change to home directory
+                self.__local_dir = pathlib.Path.home()
+                print(f"Changed local directory to {self.__local_dir}")
+                return
+
+            path = args[0]
+
+            # Support tilde expansion
+            if path.startswith("~"):
+                path = pathlib.Path(path).expanduser()
+
+            # Resolve the path (handle relative and absolute paths)
+            if pathlib.Path(path).is_absolute():
+                new_dir = pathlib.Path(path)
+            else:
+                # Relative to current local directory
+                new_dir = self.__local_dir / path
+
+            # Validate directory exists
+            if not new_dir.exists():
+                print(f"Error: Local directory '{path}' does not exist")
+                return
+
+            if not new_dir.is_dir():
+                print(f"Error: '{path}' is not a directory")
+                return
+
+            self.__local_dir = new_dir.resolve()
+            print(f"Changed local directory to {self.__local_dir}")
+
+        except Exception as e:
+            print(f"Error changing local directory: {e}")
+
+    def cmd_lpwd(self):
+        """Print local working directory."""
+        print(str(self.__local_dir))
+
+    def cmd_lls(self, args: List[str]):
+        """List local directory contents.
+
+        Args:
+            args: Optional glob pattern for filtering files.
+        """
+        try:
+            pattern = args[0] if args else "*"
+
+            # Get matching files/directories
+            items = list(self.__local_dir.glob(pattern))
+
+            if not items:
+                print("(empty)")
+                return
+
+            print()
+            print(f"{'Type':<6} {'Name':<40} {'Size':>15}")
+            print("-" * 62)
+
+            for item in sorted(items):
+                item_type = "DIR " if item.is_dir() else ""
+                name = item.name
+
+                if item.is_file():
+                    try:
+                        size_str = self._format_size(item.stat().st_size)
+                    except OSError:
+                        size_str = "-"
+                else:
+                    size_str = "-"
+
+                print(f"{item_type:<6} {name:<40} {size_str:>15}")
+
+            print()
+            print(f"Total: {len(items)} items")
+
+        except Exception as e:
+            print(f"Error listing local directory: {e}")
 
     def cmd_mkdir(self, args: List[str]):
         """Create new directory/collection on server in current directory.
