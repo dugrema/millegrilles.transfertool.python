@@ -1,7 +1,5 @@
 import logging
-import tkinter as tk
 from threading import Event, Thread
-from tkinter import ttk
 from typing import Optional
 
 from tksample1.AuthUsager import Authentification
@@ -13,7 +11,7 @@ class TransferHandler:
     def __init__(self, stop_event, connexion: Authentification):
         self.__logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
         self.__stop_event = stop_event
-        self.frame: Optional[tk.Frame] = None  # type: ignore
+        self.frame: Optional[object] = None
         self.connexion = connexion
         self.transfer_frame = None  # type: ignore[assignment]
 
@@ -110,148 +108,3 @@ class TransferHandler:
                 self.__transfer_dirty.wait(timeout=10)
 
             self.__transfer_dirty.wait(timeout=1)
-
-
-class TransferFrame(tk.Frame):
-    def __init__(self, transfer_handler, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.__logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
-        self.__transfer_handler = transfer_handler
-
-        self.__frame_upload = tk.Frame(master=self)
-        self.upload_status_var = tk.StringVar(
-            master=self.__frame_upload, value="Upload ..."
-        )
-        self.__upload_status_label = tk.Label(
-            master=self.__frame_upload,
-            textvariable=self.upload_status_var,
-            justify="left",
-        )
-        self.__upload_status_label.grid(row=0, column=0)
-        self.__treeview_upload = self.__add_treeview(self.__frame_upload)
-
-        self.__frame_download = tk.Frame(master=self)
-        self.download_status_var = tk.StringVar(
-            master=self.__frame_download, value="Download ..."
-        )
-        self.__download_status_label = tk.Label(
-            master=self.__frame_download,
-            textvariable=self.download_status_var,
-            justify="left",
-        )
-        self.__download_status_label.grid(row=0, column=0)
-        self.__treeview_download = self.__add_treeview(self.__frame_download)
-
-        # Configure grid weights for TransferFrame
-        self.grid_rowconfigure(0, weight=1)  # Upload frame - expand
-        self.grid_rowconfigure(1, weight=1)  # Download frame - expand
-        self.grid_columnconfigure(0, weight=1)
-
-        # Configure upload frame weights
-        self.__frame_upload.grid_rowconfigure(1, weight=1)  # Treeview expands
-        self.__frame_upload.grid_columnconfigure(0, weight=1)
-
-        # Configure download frame weights
-        self.__frame_download.grid_rowconfigure(1, weight=1)  # Treeview expands
-        self.__frame_download.grid_columnconfigure(0, weight=1)
-
-        self.add_widgets()
-
-    def __add_treeview(self, master):
-        treeview = ttk.Treeview(master=master, columns=("taille", "etat"), height=10)
-        treeview["columns"] = ("taille", "etat")
-
-        treeview.heading("taille", text="Taille")
-        treeview.heading("etat", text="Etat")
-
-        # Use dynamic widths for responsive layout
-        treeview.column("#0", width=400, minwidth=200)  # Changed from fixed 600
-        treeview.column("taille", width=100, anchor="se")
-        treeview.column("etat", width=75)
-
-        treeview.grid(row=1, column=0, sticky="nsew")
-
-        return treeview
-
-    def add_widgets(self):
-        self.__frame_upload.grid(
-            row=0,
-            column=0,
-            sticky="nsew",
-            padx=5,
-            pady=5,
-        )
-        self.__frame_download.grid(
-            row=1,
-            column=0,
-            sticky="nsew",
-            padx=5,
-            pady=5,
-        )
-
-    def grid(self, *args, **kwargs):
-        super().grid(*args, **kwargs)
-
-    def refresh_upload(self, courant, q: list):
-        self.__treeview_upload.delete(*self.__treeview_upload.get_children())
-        if courant is not None:
-            nom_fichier = str(courant.path)
-            self.__treeview_upload.insert(
-                "",
-                "end",
-                iid=nom_fichier,
-                text=nom_fichier,
-                values=(courant.taille, "En cours"),
-            )
-        for item in q:
-            path_item = str(item.path)
-            if isinstance(item, UploadFichier):
-                self.__treeview_upload.insert(
-                    "",
-                    "end",
-                    iid=path_item,
-                    text=path_item,
-                    values=(item.taille, "Attente"),
-                )
-            else:
-                item.preparer_taille()
-                self.__treeview_upload.insert(
-                    "",
-                    "end",
-                    iid=path_item,
-                    text=path_item,
-                    values=(item.taille, "Attente"),
-                )
-
-    def refresh_download(self, courant, q: list):
-        self.__treeview_download.delete(*self.__treeview_download.get_children())
-        if courant is not None:
-            nom_fichier = courant.nom
-            try:
-                taille = str(courant.taille_chiffree)
-            except AttributeError:
-                courant.preparer_taille(self.__transfer_handler.connexion)
-                taille = "N/D"
-            self.__treeview_download.insert(
-                "",
-                "end",
-                iid=courant.tuuid,
-                text=nom_fichier,
-                values=(taille, "En cours"),
-            )
-        for item in q:
-            nom_item = item.nom
-            if isinstance(item, DownloadFichier):
-                self.__treeview_download.insert(
-                    "",
-                    "end",
-                    iid=item.tuuid,
-                    text=nom_item,
-                    values=(item.taille_chiffree, "Attente"),
-                )
-            else:
-                courant.preparer_taille(self.__transfer_handler.connexion)
-                taille = "N/D"
-                self.__treeview_download.insert(
-                    "", "end", iid=item.tuuid, text=nom_item, values=(taille, "Attente")
-                )

@@ -5,7 +5,6 @@ import logging
 import os
 import pathlib
 import time
-import tkinter as tk
 from threading import Event, Lock, Thread
 from typing import Optional, Union
 from urllib import parse
@@ -664,71 +663,6 @@ class Authentification:
 
 def generer_csr(nom_usager: str) -> CleCsrGenere:
     return CleCsrGenere.build(nom_usager)
-
-
-class AuthFrame(tk.Frame):
-    def __init__(self, auth, *args, **kwargs):
-        self.__logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
-        super().__init__(*args, **kwargs)
-        self.auth = auth
-        self.label_nomusager = tk.Label(master=self, text="Nom usager")
-        self.entry_nomusager = tk.Entry(master=self, width=20)
-        self.label_url_serveur = tk.Label(master=self, text="URL serveur")
-        self.entry_serveur = tk.Entry(master=self, width=60)
-        self.button_connecter = tk.Button(
-            master=self, text="Connecter", command=self.btn_connecter_usager
-        )
-        self.button_deconnecter = tk.Button(
-            master=self, text="Deconnecter", command=self.btn_deconnecter_usager
-        )
-
-        self.etat = tk.StringVar(master=self, value="Deconnecte")
-        self.__etat_label = tk.Label(master=self, textvariable=self.etat)
-
-    def pack(self):
-        self.label_nomusager.pack()
-        self.entry_nomusager.pack()
-        self.label_url_serveur.pack()
-        self.entry_serveur.pack()
-        self.button_connecter.pack()
-        self.button_deconnecter.pack()
-        self.__etat_label.pack()
-        super().pack()
-
-    def grid(self, *args, **kwargs):
-        self.label_nomusager.grid(row=0, column=0)
-        self.entry_nomusager.grid(row=0, column=1, columnspan=2)
-        self.label_url_serveur.grid(row=1, column=0)
-        self.entry_serveur.grid(row=1, column=1, columnspan=2)
-        self.button_connecter.grid(row=2, column=0)
-        self.button_deconnecter.grid(row=2, column=1)
-        self.__etat_label.grid(row=2, column=2)
-        super().grid(*args, **kwargs)
-
-    def set_etat(self, connecte=False, code_activation=None):
-        if code_activation:
-            self.etat.set("Code activation : %s" % code_activation)
-            return
-
-        try:
-            if connecte:
-                self.etat.set("Connecte")
-            else:
-                self.etat.set("Deconnecte")
-        except RuntimeError:
-            pass  # Fermeture
-
-    def btn_connecter_usager(self):
-        nom_usager = self.entry_nomusager.get()
-        valeur_url = self.entry_serveur.get()
-        self.auth.authentifier(nom_usager, valeur_url)
-        self.set_etat(connecte=True)
-
-    def btn_deconnecter_usager(self):
-        self.auth.effacer_usager()
-        self.auth.deconnecter()
-        self.set_etat(connecte=False)
-        self.__logger.info("Usager deconnecte, configuration supprimee")
 
 
 def load_signed_api():

@@ -36,9 +36,9 @@ class Window:
         import tkinter as tk
         from tkinter import ttk
 
-        from tksample1.AuthUsager import AuthFrame
-        from tksample1.FileTransfer import TransferFrame
-        from tksample1.Navigation import NavigationFrame
+        from tksample1.AuthFrame import AuthFrame
+        from tksample1.NavigationFrame import NavigationFrame
+        from tksample1.TransferFrame import TransferFrame
 
         self._tk_root = tk.Tk(*args, **kwargs)
 

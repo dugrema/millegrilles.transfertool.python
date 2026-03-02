@@ -8,7 +8,6 @@ import os.path
 import pathlib
 import tempfile
 import time
-import tkinter as tk
 from threading import Event, Thread
 from typing import Optional, Union
 from urllib import parse
@@ -661,13 +660,6 @@ def prepare_file(stop_event: Event, fp, fp_out, cipher, hacheur) -> int:
         if len(chunk) > 0:
             current_output_size += len(chunk)
             fp_out.write(chunk)
-
-
-class UploaderFrame(tk.Frame):
-    def __init__(self, stop_event, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.__logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
-        self.__stop_event = stop_event
 
 
 def path_key(item: pathlib.Path):
