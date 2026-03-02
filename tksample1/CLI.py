@@ -220,6 +220,7 @@ class CLIHandler:
         """Disconnect from server."""
         self.__logger.info("Disconnecting from server...")
         print("Disconnecting from server...")
+        self.__auth.effacer_usager()  # Clean-up user cert/session, prevent auto-reconnection
         self.__auth.deconnecter()
         print("Disconnected from server")
         print("Tip: Use 'connect' to re-authenticate if needed")
