@@ -147,29 +147,22 @@ class Authentification:
     def init_config(self):
         """Initialize configuration from saved settings.
 
-        In GUI mode: Auto-populate fields and auto-connect
-        In CLI mode: Load config but don't auto-connect
+        In GUI mode: Load config and auto-connect if credentials exist
+        In CLI mode: Load config and auto-connect
         """
         if self.charger_configuration():
-            # Only auto-connect in GUI mode (when auth_frame exists)
+            # ConnectionFrame already populated fields in __init__
+            # We should NOT populate fields again to avoid duplication
+
+            # Auto-connect if credentials exist (GUI mode only)
+            # CLI mode already handles auto-connect in its own run() method
             if self.auth_frame is not None:
-                # Check if it's ConnectionFrame (new) or AuthFrame (old)
-                if hasattr(self.auth_frame, "username_entry"):
-                    # ConnectionFrame
-                    self.auth_frame.username_entry.insert(0, self.nom_usager)  # type: ignore
-                    if self.url_fiche_serveur:
-                        self.auth_frame.url_entry.insert(
-                            0, self.url_fiche_serveur.geturl()
-                        )  # type: ignore
-                elif hasattr(self.auth_frame, "entry_nomusager"):
-                    # AuthFrame (backward compatibility)
-                    self.auth_frame.entry_nomusager.insert(0, self.nom_usager)  # type: ignore
-                    serveur_url = self.url_fiche_serveur.hostname  # type: ignore
-                    self.auth_frame.entry_serveur.insert(0, serveur_url)  # type: ignore
-                # Don't auto-connect, let user click Connect button
+                # GUI mode: Auto-connect with saved credentials
+                self.__logger.info("Configuration loaded in GUI mode, auto-connecting")
+                self.auto_connect_from_saved_credentials()
             else:
-                # CLI mode: Configuration loaded but no auto-connect
-                self.__logger.info("Configuration loaded in CLI mode, no auto-connect")
+                # CLI mode: Skip auto-connect, CLI handles it in run()
+                self.__logger.info("Configuration loaded in CLI mode")
 
     def charger_configuration(self):
         # Verifier si on a deja une connexion de configuree
@@ -211,13 +204,47 @@ class Authentification:
             return None
 
     def get_saved_url(self) -> Optional[str]:
-        """Get saved server URL from configuration."""
+        """Get saved server URL from configuration, stripping /fiche.json suffix.
+
+        Returns the base URL without the fiche.json path component.
+        """
         try:
             with open(self.__path_config, "rt") as fichier:
                 config = json.load(fichier)
-            return config.get("url_fiche_serveur")
+            url = config.get("url_fiche_serveur")
+            if url:
+                # Strip /fiche.json suffix if present
+                from urllib.parse import urlparse, urlunparse
+
+                parsed = urlparse(url)
+                # Remove fiche.json from path if present
+                clean_path = parsed.path.rstrip("/")
+                if clean_path.endswith("/fiche.json"):
+                    clean_path = clean_path[:-11]  # Remove /fiche.json
+                elif clean_path == "/fiche.json":
+                    clean_path = ""
+                return urlunparse(parsed._replace(path=clean_path))
+            return url
         except (FileNotFoundError, json.JSONDecodeError):
             return None
+
+    def auto_connect_from_saved_credentials(self):
+        """Auto-connect using saved credentials.
+
+        Retrieves saved username and URL, then initiates connection.
+        In GUI mode, updates the ConnectionFrame status and switches tabs.
+        """
+        username = self.get_saved_username()
+        url = self.get_saved_url()
+
+        if username and url:
+            self.__logger.info(
+                f"Auto-connecting with saved credentials: {username} @ {url}"
+            )
+            # Use the connecter method to initiate the connection flow
+            self.authentifier(username, url)
+        else:
+            self.__logger.warning("No saved credentials found, skipping auto-connect")
 
     def effacer_usager(self):
         self.nom_usager = None
@@ -641,6 +668,9 @@ class Authentification:
         if self.auth_frame is not None:
             if hasattr(self.auth_frame, "set_connection_status"):
                 self.auth_frame.set_connection_status(connected=True)  # type: ignore
+                # Switch to Navigation tab (index 1) after successful auto-connect
+                if hasattr(self.auth_frame, "switch_to_tab"):
+                    self.auth_frame.switch_to_tab(1)  # type: ignore
             elif hasattr(self.auth_frame, "set_etat"):
                 self.auth_frame.set_etat(connecte=True)  # type: ignore
         self.__logger.debug("Upgrade auth socket.io OK")

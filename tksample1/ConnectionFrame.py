@@ -135,6 +135,19 @@ class ConnectionFrame(tk.Frame):
         self.auth.authentifier(username, server_url)
         self.set_connection_status(connected=True)
 
+    def switch_to_tab(self, tab_index: int):
+        """Switch notebook tab after successful auto-connect.
+
+        Args:
+            tab_index: Index of the tab to switch to (0=Connection, 1=Navigation, 2=Transferts)
+        """
+        try:
+            notebook = self.master
+            if hasattr(notebook, "select"):
+                notebook.select(tab_index)
+        except RuntimeError:
+            pass  # Widget destroyed
+
     def btn_disconnect(self):
         """Handle disconnection button click."""
         self.auth.effacer_usager()
