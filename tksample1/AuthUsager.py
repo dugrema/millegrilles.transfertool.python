@@ -504,6 +504,10 @@ class Authentification:
                     % (self.nom_usager, code_activation_ecran)
                 )
 
+                print(
+                    f"\nUse this code from a different device to authenticate: {code_activation_ecran}"
+                )
+
                 commande_ajouter_csr = {"nomUsager": self.nom_usager, "csr": csr_pem}
 
                 # Include TOTP code if provided
@@ -526,9 +530,12 @@ class Authentification:
                 event_certificat = Event()
 
                 if commande_ajouter_csr.get("totpCode"):
+
                     def callback_totp_request(*args):
                         self.__logger.debug(f"callback csr : {args}")
-                        self.recevoir_certificat({"message": {"contenu": json.dumps(args[0])}})
+                        self.recevoir_certificat(
+                            {"message": {"contenu": json.dumps(args[0])}}
+                        )
                         event_certificat.set()
 
                     raise NotImplementedError("TODO")

@@ -205,6 +205,12 @@ def parse_arguments():
     )
 
     parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Use DEBUG logging",
+    )
+
+    parser.add_argument(
         "--cli",
         action="store_true",
         help="Run in CLI mode (disable GUI)",
@@ -244,8 +250,12 @@ def main():
         config.tmpdir = args.tmpdir
 
     logging.basicConfig(level=logging.ERROR)
-    logging.getLogger("__main__").setLevel(logging.DEBUG)
-    logging.getLogger("tksample1").setLevel(logging.DEBUG)
+    if args.verbose:
+        logging.getLogger("__main__").setLevel(logging.DEBUG)
+        logging.getLogger("tksample1").setLevel(logging.DEBUG)
+    else:
+        logging.getLogger("__main__").setLevel(logging.WARN)
+        logging.getLogger("tksample1").setLevel(logging.WARN)
 
     # Determine execution mode with auto-fallback
     try:
