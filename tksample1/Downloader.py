@@ -608,6 +608,12 @@ class Downloader:
             path_reception_work.unlink()
             raise CancelledDownloadException()
 
+        # Reset download decrypt progress bar before starting new decryption
+        if self.__progress_manager:
+            self.__progress_manager.reset_download_decrypt(
+                getattr(item, "nom", "unknown")
+            )
+
         try:
             dechiffrer_in_place(
                 item,

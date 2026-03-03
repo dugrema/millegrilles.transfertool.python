@@ -35,7 +35,7 @@ class TransferHandler:
         self.__upload_dirty = False
 
         self.__thread_status = Thread(
-            name="TransferStatus", target=self.thread_status, daemon=False
+            name="TransferStatus", target=self.thread_status, daemon=True
         )
         self.__thread_status.start()
 
@@ -86,59 +86,97 @@ class TransferHandler:
         return self.uploader.creer_collection(nom, cuuid_parent)
 
     def thread_status(self):
+        """
+        Background thread for updating transfer status.
+
+        Optimized to:
+        - Only update queues when there are actual changes
+        - Reduce update frequency when idle (5 seconds instead of 1 second)
+        - Prevent unnecessary UI redraws
+        """
         upload_comp = None
         upload_q_comp = None
         download_comp = None
         download_q_comp = None
+
+        # Track whether we have active transfers to adjust update frequency
+        has_active_transfer = False
+
         while self.__stop_event.is_set() is False:
             self.__transfer_dirty.clear()
             try:
                 if self.transfer_frame is not None:  # type: ignore
-                    # Update status for Files tab
+                    # Get status
                     status_download, download_en_cours, q_download = (
                         self.downloader.download_status()
                     )
-                    self.transfer_frame.download_status_var.set(status_download)  # type: ignore
-
                     status_upload, upload_en_cours, q_upload = (
                         self.uploader.upload_status()
                     )
-                    self.transfer_frame.upload_status_var.set(status_upload)  # type: ignore
+
+                    # Track whether we have active transfers
+                    previous_has_active = has_active_transfer
+                    has_active_transfer = (
+                        download_en_cours is not None
+                        or upload_en_cours is not None
+                        or len(q_download) > 0
+                        or len(q_upload) > 0
+                    )
+
+                    # Determine if queue actually changed (not just reference equality)
+                    upload_changed = False
+                    download_changed = False
+
+                    # Check upload changes
                     if upload_comp is not upload_en_cours:
                         upload_comp = upload_en_cours
-                        self.__upload_dirty = True
-                    if upload_q_comp != q_upload:
-                        upload_q_comp = q_upload.copy()
-                        self.__upload_dirty = True
+                        upload_changed = True
 
-                    if self.__upload_dirty:
-                        self.__upload_dirty = False
-                        # Refresh upload list in Files tab
-                        self.transfer_frame.refresh_upload(upload_en_cours, q_upload)  # type: ignore
+                    # Compare upload queue by length and content
+                    if not upload_changed and upload_q_comp is not None:
+                        if len(upload_q_comp) != len(q_upload):
+                            upload_changed = True
+                            upload_q_comp = q_upload.copy()
+                        elif upload_q_comp != q_upload:
+                            upload_changed = True
+                            upload_q_comp = q_upload.copy()
 
+                    # Check download changes
                     if download_comp is not download_en_cours:
                         download_comp = download_en_cours
-                        self.__download_dirty = True
-                    if download_q_comp != q_download:
-                        download_q_comp = q_download.copy()
-                        self.__download_dirty = True
+                        download_changed = True
 
-                    if self.__download_dirty:
-                        self.__download_dirty = False
-                        # Refresh download list in Files tab
-                        self.transfer_frame.refresh_download(  # type: ignore
-                            download_en_cours, q_download
-                        )
+                    # Compare download queue by length and content
+                    if not download_changed and download_q_comp is not None:
+                        if len(download_q_comp) != len(q_download):
+                            download_changed = True
+                            download_q_comp = q_download.copy()
+                        elif download_q_comp != q_download:
+                            download_changed = True
+                            download_q_comp = q_download.copy()
 
-                    # Update Transferts tab queues
-                    self.transfer_frame._update_download_queue(  # type: ignore
-                        download_en_cours, q_download
-                    )
-                    self.transfer_frame._update_upload_queue(  # type: ignore
-                        upload_en_cours, q_upload
-                    )
+                    # Only update UI if there are actual changes
+                    if upload_changed or download_changed:
+                        if upload_changed:
+                            self.transfer_frame._update_upload_queue(
+                                upload_en_cours, q_upload
+                            )
+                        if download_changed:
+                            self.transfer_frame._update_download_queue(
+                                download_en_cours, q_download
+                            )
+
+                    # Reset dirty flags
+                    self.__upload_dirty = False
+                    self.__download_dirty = False
+
             except Exception:
                 self.__logger.exception("Erreur refresh transferts")
-                self.__transfer_dirty.wait(timeout=10)
+                # Longer timeout on error to avoid tight loop
+                self.__transfer_dirty.wait(timeout=5)
+                continue
 
-            self.__transfer_dirty.wait(timeout=1)
+            # Dynamic timeout: 5 seconds when idle, 1 second when active
+            # This reduces unnecessary UI updates when there's no activity
+            timeout = 5.0 if not has_active_transfer else 1.0
+            self.__transfer_dirty.wait(timeout=timeout)

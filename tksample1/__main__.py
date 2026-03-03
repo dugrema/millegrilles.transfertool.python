@@ -47,6 +47,8 @@ class Window:
         self._tk_root.minsize(700, 500)
 
         # Bind configure event for resize
+        # Use a flag to prevent infinite loop from grid() triggering more Configure events
+        self.__resizing = False
         self._tk_root.bind("<Configure>", self.on_resize)
 
         # Configure grid weights for main window
@@ -75,13 +77,8 @@ class Window:
         )
         self.__frame_notebook.add(self.__frame_transfert, text="Transferts")
 
-        # Register TransferFrame callbacks with ProgressManager
-        transfer_handler.progress_manager.register_callbacks(
-            download_transfer_callback=self.__frame_transfert.on_download_transfer_progress,
-            download_decrypt_callback=self.__frame_transfert.on_download_decrypt_progress,
-            upload_encrypt_callback=self.__frame_transfert.on_upload_encrypt_progress,
-            upload_transfer_callback=self.__frame_transfert.on_upload_transfer_progress,
-        )
+        # Note: TransferFrame already registers its own callbacks in __init__
+        # No need to register again here to avoid duplicate callbacks
 
         # Wiring frames to backend components
         self.auth_frame = self.__frame_connection
@@ -90,11 +87,19 @@ class Window:
         transfer_handler.transfer_frame = self.__frame_transfert
 
     def on_resize(self, event):
-        """Handle window resize events."""
-        if event.width < 700 or event.height < 500:
-            self.__frame_notebook.grid(padx=2, pady=2)
-        else:
-            self.__frame_notebook.grid(padx=5, pady=5)
+        """Handle window resize events with guard to prevent infinite loop."""
+        # Prevent recursive calls from grid() triggering more Configure events
+        if self.__resizing:
+            return
+        self.__resizing = True
+
+        try:
+            if event.width < 700 or event.height < 500:
+                self.__frame_notebook.grid(padx=2, pady=2)
+            else:
+                self.__frame_notebook.grid(padx=5, pady=5)
+        finally:
+            self.__resizing = False
 
     def mainloop(self):
         """Start the tkinter main loop."""

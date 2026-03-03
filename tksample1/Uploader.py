@@ -752,11 +752,9 @@ class Uploader:
             fuuid = info_dechiffrage["hachage_bytes"]
             encrypted_size = cipher.taille_chiffree
 
-            # Start transfer phase progress bar after encryption completes
-            if self.__progress_wrapper:
-                self.__progress_wrapper.transfer_phase(
-                    total=encrypted_size, desc="Uploading"
-                )
+            # Reset upload transfer progress bar before starting new upload
+            if self.__progress_manager:
+                self.__progress_manager.reset_upload_transfer(upload.path.name)
 
             # Preparer transaction
             stat_fichier = upload.path.stat()

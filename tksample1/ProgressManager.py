@@ -5,6 +5,7 @@ for upload and download operations, managing queues and callback notifications.
 """
 
 import logging
+import time
 import tkinter as tk
 from threading import Lock
 from typing import Callable, Optional
@@ -28,13 +29,20 @@ class ProgressManager:
         self.__lock = Lock()
         self._root = root
 
+        # Throttling mechanism for progress updates
+        # Minimum interval between progress updates (in seconds)
+        self.__min_update_interval = 0.1  # 100ms
+        self.__last_update_time: dict = {}
+
         # Callbacks for download progress updates
         self.__download_transfer_callback: Optional[Callable[[str, float], None]] = None
         self.__download_decrypt_callback: Optional[Callable[[str, float], None]] = None
+        self.__download_reset_callback: Optional[Callable[[str], None]] = None
 
         # Callbacks for upload progress updates
         self.__upload_encrypt_callback: Optional[Callable[[str, float], None]] = None
         self.__upload_transfer_callback: Optional[Callable[[str, float], None]] = None
+        self.__upload_reset_callback: Optional[Callable[[str], None]] = None
 
         # Download queue and current transfer
         self.__download_queue: list = []
@@ -48,26 +56,34 @@ class ProgressManager:
         self,
         download_transfer_callback: Optional[Callable[[str, float], None]] = None,
         download_decrypt_callback: Optional[Callable[[str, float], None]] = None,
+        download_reset_callback: Optional[Callable[[str], None]] = None,
         upload_encrypt_callback: Optional[Callable[[str, float], None]] = None,
         upload_transfer_callback: Optional[Callable[[str, float], None]] = None,
+        upload_reset_callback: Optional[Callable[[str], None]] = None,
     ):
         """Register callback functions for progress updates.
 
         Args:
             download_transfer_callback: Called with (filename, progress_percentage) during download
             download_decrypt_callback: Called with (filename, progress_percentage) during decryption
+            download_reset_callback: Called with (filename) before starting new download decryption
             upload_encrypt_callback: Called with (filename, progress_percentage) during encryption
             upload_transfer_callback: Called with (filename, progress_percentage) during upload
+            upload_reset_callback: Called with (filename) before starting new upload transfer
         """
         with self.__lock:
             if download_transfer_callback is not None:
                 self.__download_transfer_callback = download_transfer_callback
             if download_decrypt_callback is not None:
                 self.__download_decrypt_callback = download_decrypt_callback
+            if download_reset_callback is not None:
+                self.__download_reset_callback = download_reset_callback
             if upload_encrypt_callback is not None:
                 self.__upload_encrypt_callback = upload_encrypt_callback
             if upload_transfer_callback is not None:
                 self.__upload_transfer_callback = upload_transfer_callback
+            if upload_reset_callback is not None:
+                self.__upload_reset_callback = upload_reset_callback
 
     def _invoke_callback(self, callback: Callable, *args):
         """Invoke callback in a thread-safe manner using tkinter's after().
@@ -188,7 +204,10 @@ class ProgressManager:
             progress: Progress percentage (0-100)
         """
         if self.__download_transfer_callback is not None:
-            self._invoke_callback(self.__download_transfer_callback, filename, progress)
+            if self._should_update("download_transfer"):
+                self._invoke_callback(
+                    self.__download_transfer_callback, filename, progress
+                )
 
     def update_download_decrypt(self, filename: str, progress: float):
         """Report download decryption progress.
@@ -198,7 +217,19 @@ class ProgressManager:
             progress: Progress percentage (0-100)
         """
         if self.__download_decrypt_callback is not None:
-            self._invoke_callback(self.__download_decrypt_callback, filename, progress)
+            if self._should_update("download_decrypt"):
+                self._invoke_callback(
+                    self.__download_decrypt_callback, filename, progress
+                )
+
+    def reset_download_decrypt(self, filename: str):
+        """Reset download decryption progress bar before starting new decryption.
+
+        Args:
+            filename: Name of the file being decrypted
+        """
+        if self.__download_reset_callback is not None:
+            self._invoke_callback(self.__download_reset_callback, filename)
 
     def update_upload_encrypt(self, filename: str, progress: float):
         """Report upload encryption progress.
@@ -208,7 +239,10 @@ class ProgressManager:
             progress: Progress percentage (0-100)
         """
         if self.__upload_encrypt_callback is not None:
-            self._invoke_callback(self.__upload_encrypt_callback, filename, progress)
+            if self._should_update("upload_encrypt"):
+                self._invoke_callback(
+                    self.__upload_encrypt_callback, filename, progress
+                )
 
     def update_upload_transfer(self, filename: str, progress: float):
         """Report upload transfer progress.
@@ -218,7 +252,37 @@ class ProgressManager:
             progress: Progress percentage (0-100)
         """
         if self.__upload_transfer_callback is not None:
-            self._invoke_callback(self.__upload_transfer_callback, filename, progress)
+            if self._should_update("upload_transfer"):
+                self._invoke_callback(
+                    self.__upload_transfer_callback, filename, progress
+                )
+
+    def reset_upload_transfer(self, filename: str):
+        """Reset upload transfer progress bar before starting new upload.
+
+        Args:
+            filename: Name of the file being uploaded
+        """
+        if self.__upload_reset_callback is not None:
+            self._invoke_callback(self.__upload_reset_callback, filename)
+
+    def _should_update(self, update_type: str) -> bool:
+        """Check if progress update should be invoked based on throttling.
+
+        Args:
+            update_type: Type of update (e.g., 'download_transfer', 'upload_encrypt')
+
+        Returns:
+            True if update should proceed, False if throttled
+        """
+        current_time = time.time()
+        last_time = self.__last_update_time.get(update_type, 0)
+
+        if current_time - last_time >= self.__min_update_interval:
+            self.__last_update_time[update_type] = current_time
+            return True
+
+        return False
 
     # Get status for queue display
     def get_download_status(self) -> tuple:
