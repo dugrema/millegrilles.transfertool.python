@@ -2,7 +2,7 @@ import logging
 import pathlib
 import time
 import warnings
-from threading import Event, Thread
+from threading import Event, Lock, Thread
 from typing import Optional, Union
 from urllib import parse
 
@@ -30,6 +30,12 @@ warnings.filterwarnings(
 )
 
 
+class CancelledDownloadException(Exception):
+    """Custom exception for cancelled downloads."""
+
+    pass
+
+
 class DownloadFichier:
     def __init__(self, download_info, destination: pathlib.Path):
         self.__info = download_info
@@ -48,9 +54,22 @@ class DownloadFichier:
         self.path_destination = destination
 
         self.download_complete = Event()
+        self.__cancel_event = Event()
 
         self.taille_recue = 0
         self.taille_dechiffree = 0
+
+    def cancel(self):
+        """Cancel the download."""
+        self.__cancel_event.set()
+
+    def is_cancelled(self):
+        """Check if the download has been cancelled."""
+        return self.__cancel_event.is_set()
+
+    def cancel_event(self):
+        """Get the cancel event for checking during download."""
+        return self.__cancel_event
 
     def wait(self):
         return self.download_complete.wait()
@@ -67,8 +86,21 @@ class DownloadRepertoire:
         self.cuuid = repertoire["tuuid"]
         self.nom = metadata["nom"]
         self.download_complete = Event()
+        self.__cancel_event = Event()
         self.repertoire = None
         self.destination = destination
+
+    def cancel(self):
+        """Cancel the directory download."""
+        self.__cancel_event.set()
+
+    def is_cancelled(self):
+        """Check if the download has been cancelled."""
+        return self.__cancel_event.is_set()
+
+    def cancel_event(self):
+        """Get the cancel event for checking during download."""
+        return self.__cancel_event
 
     def wait(self):
         return self.download_complete.wait()
@@ -100,6 +132,10 @@ class Downloader:
         self.__navigation = None
         self.__https_session: Optional[requests.Session] = None
         self.__progress_wrapper = progress_wrapper  # CLI progress bar wrapper
+
+        # Track active downloads for cancellation
+        self.__active_downloads: list = []
+        self.__active_downloads_lock = Lock()
 
         # Start the download thread
         self.__thread = Thread(
@@ -147,6 +183,11 @@ class Downloader:
         download_item = DownloadFichier(download, destination)
         self.__download_queue.append(download_item)
         self.__download_pret.set()
+
+        # Track active download
+        with self.__active_downloads_lock:
+            self.__active_downloads.append(download_item)
+
         return download_item
 
     def ajouter_download_repertoire(self, repertoire, destination=None):
@@ -157,7 +198,56 @@ class Downloader:
         download_item = DownloadRepertoire(repertoire, destination)
         self.__download_queue.append(download_item)
         self.__download_pret.set()
+
+        # Track active download
+        with self.__active_downloads_lock:
+            self.__active_downloads.append(download_item)
+
         return download_item
+
+    def get_active_downloads(self):
+        """Get list of active downloads (currently being processed or queued).
+
+        Returns:
+            List of DownloadFichier or DownloadRepertoire instances
+        """
+        with self.__active_downloads_lock:
+            # Return only downloads that are not yet complete
+            return [
+                d for d in self.__active_downloads if not d.download_complete.is_set()
+            ]
+
+    def cancel_download(self, download_item):
+        """Cancel a specific download.
+
+        Args:
+            download_item: DownloadFichier or DownloadRepertoire instance to cancel
+
+        Returns:
+            True if cancellation was initiated, False if download not found
+        """
+        with self.__active_downloads_lock:
+            if download_item in self.__active_downloads:
+                download_item.cancel()
+                return True
+        return False
+
+    def cancel_all_downloads(self):
+        """Cancel all active downloads."""
+        with self.__active_downloads_lock:
+            for download_item in self.__active_downloads:
+                if not download_item.download_complete.is_set():
+                    download_item.cancel()
+
+    def _remove_completed_download(self, download_item):
+        """Remove a completed or cancelled download from active list.
+
+        Args:
+            download_item: DownloadFichier or DownloadRepertoire instance
+        """
+        with self.__active_downloads_lock:
+            if download_item in self.__active_downloads:
+                self.__active_downloads.remove(download_item)
 
     def download_thread(self):
         while self.__stop_event.is_set() is False:
@@ -198,6 +288,10 @@ class Downloader:
                                     "Type download non supporte : %s"
                                     % self.__download_en_cours
                                 )
+                        except CancelledDownloadException:
+                            # Download was cancelled - set complete event to release wait()
+                            self.__download_en_cours.download_complete.set()
+                            pass
                         except Exception:
                             self.__logger.exception(
                                 "Erreur download fichier %s" % item_name
@@ -265,12 +359,23 @@ class Downloader:
 
     def download_repertoire(self, item: DownloadRepertoire):
         tuuid = item.cuuid
+
+        # Check for cancellation before starting
+        if item.is_cancelled():
+            raise CancelledDownloadException()
+
         rep = sync_collection(self.__connexion, tuuid)
 
         # Generer les downloads
         path_destination = pathlib.Path(item.destination, item.nom)
         path_destination.mkdir(exist_ok=True)
-        for t in rep.fichiers:
+
+        try:
+            for t in rep.fichiers:
+                # Check for cancellation before processing each item
+                if item.is_cancelled():
+                    raise CancelledDownloadException()
+
             type_node = t["type_node"]
             if type_node == "Fichier":
                 try:
@@ -313,13 +418,31 @@ class Downloader:
                 download_repertoire = DownloadRepertoire(t, path_destination)
                 self.download_repertoire(download_repertoire)
 
-        # Mark directory download as complete
-        item.download_complete.set()
+            # Mark directory download as complete
+            item.download_complete.set()
+        except Exception as e:
+            # Check if it's a cancellation
+            if "cancelled" in str(e).lower():
+                self.__logger.info(
+                    "Directory download cancelled, cleaning up %s" % path_destination
+                )
+                # Clean up partially downloaded directory
+                if path_destination.exists():
+                    import shutil
+
+                    shutil.rmtree(path_destination)
+            raise
+
+        # Remove from active downloads
+        self._remove_completed_download(item)
 
     def download_fichier(self, item: DownloadFichier):
         self.__connexion.connect_event.wait()
         if self.__stop_event.is_set():
             raise Exception("Stopping")
+
+        if item.is_cancelled():
+            raise CancelledDownloadException()
 
         if item.format != "mgs4":
             raise Exception("Format de chiffrage non supporte")
@@ -374,6 +497,9 @@ class Downloader:
                     if self.__stop_event.is_set() is True:
                         path_reception_work.unlink()
                         raise Exception("Stopping")
+                    if item.is_cancelled():
+                        path_reception_work.unlink()
+                        raise CancelledDownloadException()
         except FileExistsError:
             # TODO: Voir si on doit resumer
             self.__logger.warning(
@@ -388,20 +514,39 @@ class Downloader:
                 % path_reception_work
             )
 
+        # Check for cancellation before decryption
+        if item.is_cancelled():
+            path_reception_work.unlink()
+            raise CancelledDownloadException()
+
         try:
             dechiffrer_in_place(item, path_reception_work, self.__progress_wrapper)
         except Exception as e:
-            self.__logger.exception(
-                "Erreur dechiffrage, on supprime %s" % path_reception_work
-            )
-            path_reception_work.unlink()
+            # Check if it's a cancellation exception
+            if "cancelled" in str(e).lower():
+                self.__logger.info(
+                    "Download cancelled, removing %s" % path_reception_work
+                )
+            else:
+                self.__logger.exception(
+                    "Erreur dechiffrage, on supprime %s" % path_reception_work
+                )
+            if path_reception_work.exists():
+                path_reception_work.unlink()
             raise e
+
+        # Check for cancellation before finalizing
+        if item.is_cancelled():
+            raise CancelledDownloadException()
 
         # Marquer le fichier comme pret (dechiffre)
         path_reception_work.rename(path_reception)
         self.__logger.debug("Fichier %s dechiffre OK" % path_reception)
 
         item.download_complete.set()
+
+        # Remove from active downloads
+        self._remove_completed_download(item)
 
 
 def dechiffrer_in_place(item, path_reception, progress_wrapper=None):
@@ -417,6 +562,10 @@ def dechiffrer_in_place(item, path_reception, progress_wrapper=None):
         position_read = 0
         position_write = 0
         while True:
+            # Check for cancellation
+            if item.is_cancelled():
+                raise CancelledDownloadException()
+
             chunk = fichier.read(64 * 1024)
             if chunk is None or len(chunk) == 0:
                 break
@@ -431,6 +580,10 @@ def dechiffrer_in_place(item, path_reception, progress_wrapper=None):
                 fichier.seek(position_read)
                 if progress_wrapper:
                     progress_wrapper.update_encrypt(len(chunk_dechiffre))
+
+        # Check for cancellation before finalization
+        if item.is_cancelled():
+            raise CancelledDownloadException()
 
         chunk_dechiffre = decipher.finalize()
         if chunk_dechiffre:

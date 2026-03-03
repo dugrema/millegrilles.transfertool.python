@@ -1,9 +1,12 @@
 import logging
 import pathlib
+import signal
+import sys
 from shlex import split as shlex_split
 from threading import Event, Lock
 from typing import List, Optional
 
+from tksample1.Downloader import CancelledDownloadException
 from tksample1.FileTransfer import TransferHandler
 from tksample1.Navigation import Navigation, Repertoire, sync_collection
 from tksample1.ProgressBar import DownloadProgressBar, UploadProgressBar
@@ -238,6 +241,8 @@ class CLIHandler:
             self.cmd_connect(totp_code=totp_code)
         elif command == "status":
             self.cmd_status()
+        elif command == "cancel":
+            self.cmd_cancel(args)
         elif command == "help":
             self._print_help()
         else:
@@ -482,6 +487,7 @@ class CLIHandler:
         print("Transfer:")
         print("  get <file>   - Download file to local directory")
         print("  put <path>   - Upload file from local directory")
+        print("  cancel [file] - Cancel active download(s) (empty cancels all)")
         print("  mkdir <name> - Create remote directory")
         print()
         print("Other:")
@@ -714,6 +720,8 @@ class CLIHandler:
             return
 
         filename = args[0]
+        download_item = None
+        download_progress = None
 
         try:
             # Get current directory contents
@@ -744,7 +752,19 @@ class CLIHandler:
                 download_item = self.__transfer_handler.ajouter_download_repertoire(
                     target_item, self.__local_dir
                 )
-                download_item.wait()
+                try:
+                    download_item.wait()
+                except CancelledDownloadException:
+                    print(f"\nDownload cancelled: '{filename}'")
+                    return
+                except Exception as e:
+                    raise
+
+                # Check if cancelled
+                if download_item.is_cancelled():
+                    print(f"\nDownload cancelled: '{filename}'")
+                    return
+
                 print(f"Download complete: '{filename}'")
                 return
 
@@ -763,7 +783,7 @@ class CLIHandler:
                 # Start download phase (transfer from server)
                 download_progress.start_download(encrypted_size)
 
-                # Start decrypt phase before download beginsress wrapper on transfer handler
+                # Set progress wrapper on transfer handler
                 self.__transfer_handler.set_progress_wrappers(
                     downloader_progress_wrapper=download_progress.wrapper
                 )
@@ -774,7 +794,20 @@ class CLIHandler:
                 )
 
                 # Wait for download to complete
-                download_item.wait()
+                try:
+                    download_item.wait()
+                except CancelledDownloadException:
+                    print(f"\nDownload cancelled: '{filename}'")
+                    download_progress.close()
+                    return
+                except Exception as e:
+                    raise
+
+                # Check if cancelled
+                if download_item.is_cancelled():
+                    print(f"\nDownload cancelled: '{filename}'")
+                    download_progress.close()
+                    return
 
                 # Start decrypt phase after download completes
                 download_progress.start_decrypt()
@@ -787,8 +820,24 @@ class CLIHandler:
                 print(f"Error: Unsupported type '{type_node}'")
                 return
 
+        except KeyboardInterrupt:
+            # Handle Ctrl+C
+            print(f"\nDownload interrupted by user")
+            if download_item is not None:
+                self.__transfer_handler.downloader.cancel_download(download_item)
+            if download_progress is not None:
+                download_progress.close()
+            # Partial files will be cleaned up by the downloader
+            return
         except FileExistsError:
             print(f"Error: File '{filename}' already exists in download directory")
+            if download_progress is not None:
+                download_progress.close()
+        except CancelledDownloadException:
+            # Cancellation propagated - should not reach here, but handle gracefully
+            print(f"\nDownload cancelled: '{filename}'")
+            if download_progress is not None:
+                download_progress.close()
         except Exception as e:
             self.__logger.exception("Error during get operation")
             print(f"Error: {e}")
@@ -972,6 +1021,47 @@ class CLIHandler:
 
         except Exception as e:
             print(f"Error listing local directory: {e}")
+
+    def cmd_cancel(self, args: List[str]):
+        """Cancel active downloads.
+
+        Args:
+            args: Optional filename to cancel (empty cancels all)
+        """
+        try:
+            # Get active downloads from the downloader
+            active_downloads = self.__transfer_handler.downloader.get_active_downloads()
+
+            if not active_downloads:
+                print("No active downloads to cancel")
+                return
+
+            print(f"Found {len(active_downloads)} active download(s):")
+            for i, download in enumerate(active_downloads, 1):
+                download_type = "Directory" if hasattr(download, "cuuid") else "File"
+                print(f"  {i}. {download.nom} ({download_type})")
+
+            # If specific filename provided, cancel only that download
+            if args:
+                filename = args[0]
+                cancelled = False
+                for download in active_downloads:
+                    if download.nom == filename:
+                        self.__transfer_handler.downloader.cancel_download(download)
+                        print(f"Cancelled download: {filename}")
+                        cancelled = True
+                        break
+
+                if not cancelled:
+                    print(f"No active download found for: {filename}")
+            else:
+                # Cancel all active downloads
+                self.__transfer_handler.downloader.cancel_all_downloads()
+                print("Cancelled all active downloads")
+
+        except Exception as e:
+            self.__logger.exception("Error during cancel operation")
+            print(f"Error: {e}")
 
     def cmd_mkdir(self, args: List[str]):
         """Create new directory/collection on server in current directory.
