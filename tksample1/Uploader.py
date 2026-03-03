@@ -9,7 +9,7 @@ import pathlib
 import tempfile
 import time
 import warnings
-from threading import Event, Thread
+from threading import Event, Lock, Thread
 from typing import Optional, Union
 from urllib import parse
 
@@ -43,6 +43,12 @@ warnings.filterwarnings(
 )
 
 
+class CancelledUploadException(Exception):
+    """Custom exception for cancelled uploads."""
+
+    pass
+
+
 class UploadRepertoire:
     def __init__(
         self,
@@ -58,6 +64,19 @@ class UploadRepertoire:
         self.__taille_uploade = 0
         self.fichiers_uploades = 0
         self.upload_complete = Event()
+        self.__cancel_event = Event()
+
+    def cancel(self):
+        """Cancel the upload."""
+        self.__cancel_event.set()
+
+    def is_cancelled(self):
+        """Check if the upload has been cancelled."""
+        return self.__cancel_event.is_set()
+
+    def cancel_event(self):
+        """Get the cancel event for checking during upload."""
+        return self.__cancel_event
 
     def add_chunk_uploade(self, taille: int):
         if self.__parent is not None:
@@ -119,6 +138,19 @@ class UploadFichier:
         self.__taille_uploade = 0
         self.batch_token = None
         self.upload_complete = Event()
+        self.__cancel_event = Event()
+
+    def cancel(self):
+        """Cancel the upload."""
+        self.__cancel_event.set()
+
+    def is_cancelled(self):
+        """Check if the upload has been cancelled."""
+        return self.__cancel_event.is_set()
+
+    def cancel_event(self):
+        """Get the cancel event for checking during upload."""
+        return self.__cancel_event
 
     def add_chunk_uploade(self, taille: int):
         if self.__parent:
@@ -170,6 +202,10 @@ class Uploader:
         self.__event_upload_in_progress = Event()
         self.__progress_wrapper = progress_wrapper  # CLI progress bar wrapper
 
+        # Track active uploads for cancellation
+        self.__active_uploads: list = []
+        self.__active_uploads_lock = Lock()
+
         self.__thread = Thread(name="uploader", target=self.upload_thread, daemon=False)
         self.__thread.start()
         # self.__thread_label = Thread(name="uploader_label", target=self.__upload_label_thread, daemon=False)
@@ -203,6 +239,48 @@ class Uploader:
     def set_navigation(self, navigation):
         self.__navigation = navigation
 
+    def get_active_uploads(self):
+        """Get list of active uploads (currently being processed or queued).
+
+        Returns:
+            List of UploadFichier or UploadRepertoire instances
+        """
+        with self.__active_uploads_lock:
+            # Return only uploads that are not yet complete
+            return [u for u in self.__active_uploads if not u.upload_complete.is_set()]
+
+    def cancel_upload(self, upload_item):
+        """Cancel a specific upload.
+
+        Args:
+            upload_item: UploadFichier or UploadRepertoire instance to cancel
+
+        Returns:
+            True if cancellation was initiated, False if upload not found
+        """
+        with self.__active_uploads_lock:
+            if upload_item in self.__active_uploads:
+                upload_item.cancel()
+                return True
+        return False
+
+    def cancel_all_uploads(self):
+        """Cancel all active uploads."""
+        with self.__active_uploads_lock:
+            for upload_item in self.__active_uploads:
+                if not upload_item.upload_complete.is_set():
+                    upload_item.cancel()
+
+    def _remove_completed_upload(self, upload_item):
+        """Remove a completed or cancelled upload from active list.
+
+        Args:
+            upload_item: UploadFichier or UploadRepertoire instance
+        """
+        with self.__active_uploads_lock:
+            if upload_item in self.__active_uploads:
+                self.__active_uploads.remove(upload_item)
+
     @property
     def progress_wrapper(self):
         """Get the progress wrapper for CLI mode."""
@@ -234,6 +312,11 @@ class Uploader:
             upload_item = UploadFichier(cuuid_parent, path_upload)  # type: ignore
         self.__upload_queue.append(upload_item)
         self.__upload_pret.set()
+
+        # Track active upload for cancellation
+        with self.__active_uploads_lock:
+            self.__active_uploads.append(upload_item)
+
         return upload_item  # type: ignore
 
     def upload_thread(self):
@@ -257,6 +340,17 @@ class Uploader:
                         else:
                             if self.__stop_event.is_set():
                                 return  # Stopping
+                            # Check if this specific upload has been cancelled
+                            if (
+                                self.__upload_en_cours is not None
+                                and self.__upload_en_cours.is_cancelled()
+                            ):
+                                self.__logger.info(
+                                    "Upload cancelled before starting: %s",
+                                    self.__upload_en_cours.path,
+                                )
+                                self._remove_completed_upload(self.__upload_en_cours)
+                                continue
                             try:
                                 # self.update_upload_status()
                                 if isinstance(self.__upload_en_cours, UploadFichier):
@@ -322,10 +416,19 @@ class Uploader:
     def upload_repertoire(
         self, upload: UploadRepertoire, rep_parent: Optional[Repertoire] = None
     ):
+        # Check if upload has been cancelled before starting
+        if upload.is_cancelled():
+            self.__logger.info("Upload cancelled: %s", upload.path)
+            upload.upload_complete.set()
+            self._remove_completed_upload(upload)
+            return
+
         if rep_parent is None:
             cuuid_parent = upload.cuuid_parent
             while True:
-                if self.__stop_event.is_set() is True:
+                if self.__stop_event.is_set() is True or upload.is_cancelled():
+                    if upload.is_cancelled():
+                        self.__logger.info("Upload cancelled: %s", upload.path)
                     return  # Stopping
                 try:
                     rep_parent = sync_collection(self.__connexion, cuuid_parent)
@@ -347,7 +450,9 @@ class Uploader:
             ].pop()
             cuuid_courant = rep_existant["tuuid"]
             while True:
-                if self.__stop_event.is_set() is True:
+                if self.__stop_event.is_set() is True or upload.is_cancelled():
+                    if upload.is_cancelled():
+                        self.__logger.info("Upload cancelled: %s", upload.path)
                     return  # Stopping
                 try:
                     rep_courant = sync_collection(self.__connexion, cuuid_courant)
@@ -361,7 +466,9 @@ class Uploader:
         except IndexError:
             rep_existant = None
             while True:
-                if self.__stop_event.is_set() is True:
+                if self.__stop_event.is_set() is True or upload.is_cancelled():
+                    if upload.is_cancelled():
+                        self.__logger.info("Upload cancelled: %s", upload.path)
                     return  # Stopping
                 try:
                     # Creer repertoire
@@ -390,15 +497,27 @@ class Uploader:
         for t in liste_sous_items:
             nom_item = t.name
             if t.is_dir():
+                # Check for cancellation before processing subdirectory
+                if upload.is_cancelled():
+                    self.__logger.info("Upload cancelled: %s", upload.path)
+                    break
                 rep_item = UploadRepertoire(cuuid_courant, t, upload)
                 try:
                     item = rep_map[nom_item]
                     # Repertoire existe
-                    self.upload_repertoire(rep_item, rep_courant)
+                    try:
+                        self.upload_repertoire(rep_item, rep_courant)
+                    except CancelledUploadException:
+                        self.__logger.info("Upload cancelled: %s", upload.path)
+                        upload.upload_complete.set()
+                        self._remove_completed_upload(upload)
+                        return
                 except KeyError:
                     # Nouveau repertoire
                     while True:
-                        if self.__stop_event.is_set() is True:
+                        if self.__stop_event.is_set() is True or upload.is_cancelled():
+                            if upload.is_cancelled():
+                                self.__logger.info("Upload cancelled: %s", upload.path)
                             return  # Stopping
                         try:
                             self.creer_collection(nom_item, cuuid_courant)
@@ -408,20 +527,44 @@ class Uploader:
                                 "upload_repertoire Erreur creer collection (2), retry dans 20 secondes"
                             )
                             time.sleep(20)
-                    self.upload_repertoire(rep_item, None)  # Parent none force resync
+                    try:
+                        self.upload_repertoire(
+                            rep_item, None
+                        )  # Parent none force resync
+                    except CancelledUploadException:
+                        self.__logger.info("Upload cancelled: %s", upload.path)
+                        upload.upload_complete.set()
+                        self._remove_completed_upload(upload)
+                        return
             else:
                 # Fichier
+                # Check for cancellation before processing file
+                if upload.is_cancelled():
+                    self.__logger.info("Upload cancelled: %s", upload.path)
+                    break
                 try:
                     item = rep_map[nom_item]
                     # Fichier existe, on l'ignore (TODO : verifier hachage si changement)
                 except KeyError:
                     fichier_item = UploadFichier(cuuid_courant, t, upload)
-                    self.upload_fichier(fichier_item)
+                    try:
+                        self.upload_fichier(fichier_item)
+                    except CancelledUploadException:
+                        self.__logger.info("Upload cancelled: %s", upload.path)
+                        upload.upload_complete.set()
+                        self._remove_completed_upload(upload)
+                        return
                 upload.add_fichiers_traite(1)
 
         upload.upload_complete.set()
+        self._remove_completed_upload(upload)
 
     def upload_fichier(self, upload: UploadFichier):
+        # Check if upload has been cancelled before starting
+        if upload.is_cancelled():
+            self.__logger.info("Upload cancelled: %s", upload.path)
+            raise CancelledUploadException()
+
         retry_count = 0
         interval_retry = datetime.timedelta(seconds=20)
         while self.__stop_event.is_set() is False:
@@ -433,6 +576,13 @@ class Uploader:
                     upload.reset_taille_uploade()
                 self.__upload_fichier_1pass(upload)
                 upload.upload_complete.set()
+                self._remove_completed_upload(upload)
+                break
+            except CancelledUploadException:
+                # Upload was cancelled, don't retry
+                self.__logger.info("Upload cancelled: %s", upload.path)
+                upload.upload_complete.set()
+                self._remove_completed_upload(upload)
                 break
             except Exception:
                 self.__logger.exception(
@@ -455,11 +605,19 @@ class Uploader:
                     # Reset token
                     upload.batch_token = None
 
+                # Check for cancellation before retry
+                if upload.is_cancelled():
+                    self.__logger.info(
+                        "Upload cancelled during retry wait: %s", upload.path
+                    )
+                    break
+
                 # Attendre pour retry
                 self.__stop_event.wait(timeout=interval_retry.seconds)
                 retry_count += 1
         else:
             upload.upload_complete.set()
+            self._remove_completed_upload(upload)
 
     def __upload_fichier_1pass(self, upload: UploadFichier):
         if self.__certificats_chiffrage is None:
@@ -487,6 +645,7 @@ class Uploader:
                         tmpfile,
                         cipher,
                         hacheur,
+                        upload=upload,
                         on_progress=lambda current: self.__update_progress(
                             "encrypt", current
                         ),
@@ -706,7 +865,7 @@ def file_iterator(
     current_output_size = 0
     maxsize = maxsize - UPLOAD_CHUNK_SIZE
     while current_output_size < maxsize:
-        if stop_event.is_set():
+        if stop_event.is_set() or upload.is_cancelled():
             raise Exception("Stopping")
         chunk = fp.read(UPLOAD_CHUNK_SIZE)
         if len(chunk) == 0:
@@ -722,7 +881,7 @@ def file_iterator(
 
 
 def prepare_file(
-    stop_event: Event, fp, fp_out, cipher, hacheur, on_progress=None
+    stop_event: Event, fp, fp_out, cipher, hacheur, upload=None, on_progress=None
 ) -> int:
     """
     Encrypt a file and write to output.
@@ -733,6 +892,7 @@ def prepare_file(
         fp_out: Output file pointer
         cipher: Cipher object for encryption
         hacheur: Hasher object for computing digest
+        upload: UploadFichier instance for cancellation checking
         on_progress: Optional callback(current_bytes, total_bytes) for progress updates
 
     Returns:
@@ -740,8 +900,8 @@ def prepare_file(
     """
     current_output_size = 0
     while True:
-        if stop_event.is_set():
-            raise Exception("Stopping")
+        if stop_event.is_set() or (upload is not None and upload.is_cancelled()):
+            raise CancelledUploadException()
         chunk = fp.read(UPLOAD_CHUNK_SIZE)
         if len(chunk) == 0:
             chunk = cipher.finalize()

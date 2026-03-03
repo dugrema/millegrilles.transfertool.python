@@ -67,8 +67,34 @@ class CLIHandler:
 
                 self._process_command(command_input)
             except KeyboardInterrupt:
-                self.__logger.info("CLI interrupted by user")
-                break
+                self.__logger.info("CLI interrupted by user (CTRL-C)")
+                # Cancel all active uploads and downloads
+                cancelled_downloads = len(
+                    self.__transfer_handler.downloader.get_active_downloads()
+                )
+                cancelled_uploads = len(
+                    self.__transfer_handler.uploader.get_active_uploads()
+                )
+
+                if cancelled_downloads > 0 or cancelled_uploads > 0:
+                    print("\nCTRL-C detected. Cancelling active transfers...")
+                    if cancelled_downloads > 0:
+                        self.__transfer_handler.downloader.cancel_all_downloads()
+                        print(f"Cancelled {cancelled_downloads} active download(s)")
+                    if cancelled_uploads > 0:
+                        self.__transfer_handler.uploader.cancel_all_uploads()
+                        print(f"Cancelled {cancelled_uploads} active upload(s)")
+                    # Wait a moment for cancellation to propagate
+                    import time
+
+                    time.sleep(0.5)
+                    print("Transfers cancelled. CLI session continues...")
+                    # Continue CLI loop instead of breaking
+                    continue
+                else:
+                    # No active transfers, exit CLI
+                    print("\nNo active transfers. Exiting CLI...")
+                    break
             except Exception as e:
                 self.__logger.exception("Error processing command")
                 print(f"Error: {e}")
@@ -487,7 +513,9 @@ class CLIHandler:
         print("Transfer:")
         print("  get <file>   - Download file to local directory")
         print("  put <path>   - Upload file from local directory")
-        print("  cancel [file] - Cancel active download(s) (empty cancels all)")
+        print("  cancel [file] - Cancel active transfer (empty cancels all)")
+        print("    cancel --uploads    - Cancel all uploads")
+        print("    cancel --downloads  - Cancel all downloads")
         print("  mkdir <name> - Create remote directory")
         print()
         print("Other:")
@@ -1023,41 +1051,98 @@ class CLIHandler:
             print(f"Error listing local directory: {e}")
 
     def cmd_cancel(self, args: List[str]):
-        """Cancel active downloads.
+        """Cancel active downloads and uploads.
 
         Args:
-            args: Optional filename to cancel (empty cancels all)
+            args: Optional arguments. Can be:
+                - [] - Cancel all active transfers
+                - ['--uploads'] - Cancel uploads only
+                - ['--downloads'] - Cancel downloads only
+                - [filename] - Cancel specific transfer by filename
         """
         try:
-            # Get active downloads from the downloader
+            # Get active transfers
             active_downloads = self.__transfer_handler.downloader.get_active_downloads()
+            active_uploads = self.__transfer_handler.uploader.get_active_uploads()
 
-            if not active_downloads:
-                print("No active downloads to cancel")
+            # Determine what to cancel based on args
+            cancel_downloads = True
+            cancel_uploads = True
+            target_filename = None
+
+            if args:
+                if args[0] == "--uploads":
+                    cancel_downloads = False
+                elif args[0] == "--downloads":
+                    cancel_uploads = False
+                else:
+                    # Specific filename
+                    target_filename = args[0]
+
+            has_active = bool(active_downloads or active_uploads)
+
+            if not has_active:
+                print("No active transfers to cancel")
                 return
 
-            print(f"Found {len(active_downloads)} active download(s):")
-            for i, download in enumerate(active_downloads, 1):
-                download_type = "Directory" if hasattr(download, "cuuid") else "File"
-                print(f"  {i}. {download.nom} ({download_type})")
+            # List active transfers
+            if active_downloads:
+                print(f"Found {len(active_downloads)} active download(s):")
+                for i, download in enumerate(active_downloads, 1):
+                    download_type = (
+                        "Directory" if hasattr(download, "cuuid") else "File"
+                    )
+                    print(f"  D{i}. {download.nom} ({download_type})")
 
-            # If specific filename provided, cancel only that download
-            if args:
-                filename = args[0]
+            if active_uploads:
+                print(f"Found {len(active_uploads)} active upload(s):")
+                for i, upload in enumerate(active_uploads, 1):
+                    from tksample1.Uploader import UploadRepertoire
+
+                    upload_type = (
+                        "Directory" if isinstance(upload, UploadRepertoire) else "File"
+                    )
+                    print(f"  U{i}. {upload.path.name} ({upload_type})")
+
+            # If specific filename provided, cancel that transfer
+            if target_filename:
                 cancelled = False
+
+                # Try to find in downloads
                 for download in active_downloads:
-                    if download.nom == filename:
+                    if download.nom == target_filename:
                         self.__transfer_handler.downloader.cancel_download(download)
-                        print(f"Cancelled download: {filename}")
+                        print(f"Cancelled download: {target_filename}")
                         cancelled = True
                         break
 
+                # Try to find in uploads if not found in downloads
                 if not cancelled:
-                    print(f"No active download found for: {filename}")
+                    for upload in active_uploads:
+                        if upload.path.name == target_filename:
+                            self.__transfer_handler.uploader.cancel_upload(upload)
+                            print(f"Cancelled upload: {target_filename}")
+                            cancelled = True
+                            break
+
+                if not cancelled:
+                    print(f"No active transfer found for: {target_filename}")
             else:
-                # Cancel all active downloads
-                self.__transfer_handler.downloader.cancel_all_downloads()
-                print("Cancelled all active downloads")
+                # Cancel based on flags
+                cancelled_anything = False
+
+                if cancel_downloads and active_downloads:
+                    self.__transfer_handler.downloader.cancel_all_downloads()
+                    print(f"Cancelled {len(active_downloads)} active download(s)")
+                    cancelled_anything = True
+
+                if cancel_uploads and active_uploads:
+                    self.__transfer_handler.uploader.cancel_all_uploads()
+                    print(f"Cancelled {len(active_uploads)} active upload(s)")
+                    cancelled_anything = True
+
+                if not cancelled_anything:
+                    print("No matching transfers to cancel")
 
         except Exception as e:
             self.__logger.exception("Error during cancel operation")
