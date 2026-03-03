@@ -75,6 +75,14 @@ class Window:
         )
         self.__frame_notebook.add(self.__frame_transfert, text="Transferts")
 
+        # Register TransferFrame callbacks with ProgressManager
+        transfer_handler.progress_manager.register_callbacks(
+            download_transfer_callback=self.__frame_transfert.on_download_transfer_progress,
+            download_decrypt_callback=self.__frame_transfert.on_download_decrypt_progress,
+            upload_encrypt_callback=self.__frame_transfert.on_upload_encrypt_progress,
+            upload_transfer_callback=self.__frame_transfert.on_upload_transfer_progress,
+        )
+
         # Wiring frames to backend components
         self.auth_frame = self.__frame_connection
         self.auth.auth_frame = self.__frame_connection

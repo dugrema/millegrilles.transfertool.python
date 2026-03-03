@@ -29,6 +29,7 @@ from wakepy import keep
 
 from tksample1.AuthUsager import Authentification
 from tksample1.Navigation import Repertoire, sync_collection
+from tksample1.ProgressManager import ProgressManager
 
 # Suppress wakepy ActivationWarning when DBus services are not available
 warnings.filterwarnings(
@@ -63,6 +64,12 @@ class UploadRepertoire:
         self.nombre_sous_fichiers = None
         self.__taille_uploade = 0
         self.fichiers_uploades = 0
+
+        # Progress tracking attributes for GUI
+        self.taille_originale = 0  # Will be calculated
+        self.taille_chiffree = 0  # Encrypted size
+        self.taille_uploadee = 0  # Cumulative uploaded bytes
+
         self.upload_complete = Event()
         self.__cancel_event = Event()
 
@@ -136,6 +143,12 @@ class UploadFichier:
         self.__parent = parent
         self.taille = path_fichier.stat().st_size
         self.__taille_uploade = 0
+
+        # Progress tracking attributes for GUI
+        self.taille_originale = self.taille  # Original file size
+        self.taille_chiffree = 0  # Encrypted size (will be set during encryption)
+        self.taille_uploadee = 0  # Cumulative uploaded bytes
+
         self.batch_token = None
         self.upload_complete = Event()
         self.__cancel_event = Event()
@@ -186,7 +199,13 @@ UPLOAD_SPLIT_SIZE = 100_000_000
 
 
 class Uploader:
-    def __init__(self, stop_event, connexion: Authentification, progress_wrapper=None):
+    def __init__(
+        self,
+        stop_event,
+        connexion: Authentification,
+        progress_manager: Optional[ProgressManager] = None,
+        progress_wrapper=None,
+    ):
         self.__logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
         self.__stop_event = stop_event
         self.__connexion = connexion
@@ -200,7 +219,10 @@ class Uploader:
         self.__navigation = None
         self.__upload_en_cours: Optional[Union[UploadFichier, UploadRepertoire]] = None
         self.__event_upload_in_progress = Event()
-        self.__progress_wrapper = progress_wrapper  # CLI progress bar wrapper
+        self.__progress_wrapper = (
+            progress_wrapper  # CLI progress bar wrapper (deprecated)
+        )
+        self.__progress_manager = progress_manager  # GUI progress manager
 
         # Track active uploads for cancellation
         self.__active_uploads: list = []
@@ -213,18 +235,56 @@ class Uploader:
 
         self.__init_mime_types()
 
-    def __update_progress(self, phase: str, current: int):
+    def __update_progress(self, phase: str, delta: int):
         """Update progress for the specified phase.
 
         Args:
             phase: Either 'encrypt' or 'transfer'
-            current: Current bytes processed
+            delta: Bytes processed in this update (incremental)
         """
+        # Update CLI progress wrapper
         if self.__progress_wrapper:
             if phase == "encrypt":
-                self.__progress_wrapper.update_encrypt(current)
+                self.__progress_wrapper.update_encrypt(delta)
             elif phase == "transfer":
-                self.__progress_wrapper.update_transfer(current)
+                self.__progress_wrapper.update_transfer(delta)
+
+        # Track cumulative progress for ProgressManager
+        if self.__progress_manager and self.__upload_en_cours:
+            filename = getattr(
+                self.__upload_en_cours, "path", pathlib.Path("unknown")
+            ).name
+
+            if phase == "encrypt":
+                # Update cumulative encrypted size
+                if hasattr(self.__upload_en_cours, "taille_chiffree"):
+                    self.__upload_en_cours.taille_chiffree += delta
+
+                    # Calculate percentage - use original file size as denominator
+                    if hasattr(self.__upload_en_cours, "taille_originale"):
+                        progress = (
+                            self.__upload_en_cours.taille_chiffree
+                            / self.__upload_en_cours.taille_originale
+                        ) * 100
+                        self.__progress_manager.update_upload_encrypt(
+                            filename, progress
+                        )
+
+            elif phase == "transfer":
+                # Update cumulative uploaded size
+                self.__upload_en_cours.taille_uploadee += delta
+
+                # Calculate percentage - use encrypted size as denominator
+                if hasattr(self.__upload_en_cours, "taille_chiffree"):
+                    progress = min(
+                        100.0,
+                        (
+                            self.__upload_en_cours.taille_uploadee
+                            / max(1, self.__upload_en_cours.taille_chiffree)
+                        )
+                        * 100,
+                    )
+                    self.__progress_manager.update_upload_transfer(filename, progress)
 
     def __init_mime_types(self):
         import tksample1
@@ -281,6 +341,11 @@ class Uploader:
             if upload_item in self.__active_uploads:
                 self.__active_uploads.remove(upload_item)
 
+        # Remove from ProgressManager queue
+        if self.__progress_manager:
+            filename = getattr(upload_item, "path", pathlib.Path("unknown")).name
+            self.__progress_manager.remove_from_upload_queue(filename)
+
     @property
     def progress_wrapper(self):
         """Get the progress wrapper for CLI mode."""
@@ -291,10 +356,15 @@ class Uploader:
         """Set the progress wrapper for CLI mode."""
         self.__progress_wrapper = value
 
-    @progress_wrapper.setter
-    def progress_wrapper(self, value):
-        """Set the progress wrapper for CLI mode."""
-        self.__progress_wrapper = value
+    @property
+    def progress_manager(self):
+        """Get the progress manager for GUI mode."""
+        return self.__progress_manager
+
+    @progress_manager.setter
+    def progress_manager(self, value):
+        """Set the progress manager for GUI mode."""
+        self.__progress_manager = value
 
     def quit(self):
         self.__upload_pret.set()
@@ -317,6 +387,18 @@ class Uploader:
         with self.__active_uploads_lock:
             self.__active_uploads.append(upload_item)
 
+        # Add to ProgressManager queue for GUI display
+        if self.__progress_manager:
+            file_size = (
+                upload_item.path.stat().st_size if not path_upload.is_dir() else 0
+            )
+            self.__progress_manager.add_to_upload_queue(
+                {
+                    "filename": upload_item.path.name,
+                    "size": file_size,
+                }
+            )
+
         return upload_item  # type: ignore
 
     def upload_thread(self):
@@ -335,6 +417,17 @@ class Uploader:
                         try:
                             self.__upload_en_cours = self.__upload_queue.pop(0)
                             self.__event_upload_in_progress.set()
+
+                            # Set current upload in ProgressManager
+                            if self.__progress_manager and self.__upload_en_cours:
+                                item_name = getattr(
+                                    self.__upload_en_cours,
+                                    "path",
+                                    pathlib.Path("unknown"),
+                                ).name
+                                self.__progress_manager.set_current_upload(
+                                    {"filename": item_name}
+                                )
                         except IndexError:
                             break
                         else:
@@ -367,6 +460,9 @@ class Uploader:
                             except Exception:  # type: ignore
                                 self.__logger.exception("Erreur upload")
                             finally:
+                                # Reset current upload in ProgressManager
+                                if self.__progress_manager:
+                                    self.__progress_manager.set_current_upload(None)
                                 self.__upload_en_cours = None
         except Exception:  # type: ignore
             self.__logger.exception("upload_thread interrompue par error")

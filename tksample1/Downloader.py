@@ -1,6 +1,5 @@
 import logging
 import pathlib
-import time
 import warnings
 from threading import Event, Lock, Thread
 from typing import Optional, Union
@@ -9,13 +8,13 @@ from urllib import parse
 import requests
 import urllib3.exceptions
 from millegrilles_messages.chiffrage.Mgs4 import DecipherMgs4
-from millegrilles_messages.messages import Constantes
 from requests import HTTPError
 from wakepy import keep
 
 from tksample1.AuthUsager import Authentification
 from tksample1.Navigation import sync_collection
 from tksample1.ProgressBar import DownloadProgressBar
+from tksample1.ProgressManager import ProgressManager
 
 # Suppress wakepy ActivationWarning when DBus services are not available
 warnings.filterwarnings(
@@ -90,6 +89,11 @@ class DownloadRepertoire:
         self.repertoire = None
         self.destination = destination
 
+        # Progress tracking attributes for GUI
+        self.taille_recue = 0  # Cumulative received bytes
+        self.taille_dechiffree = 0  # Cumulative decrypted bytes
+        self.taille_chiffree = 0  # Total encrypted size (for percentage calculation)
+
     def cancel(self):
         """Cancel the directory download."""
         self.__cancel_event.set()
@@ -116,7 +120,11 @@ class DownloadRepertoire:
 
 class Downloader:
     def __init__(
-        self, stop_event: Event, connexion: Authentification, progress_wrapper=None
+        self,
+        stop_event: Event,
+        connexion: Authentification,
+        progress_manager: Optional[ProgressManager] = None,
+        progress_wrapper=None,  # CLI progress bar wrapper (deprecated)
     ):
         self.__logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
         self.__stop_event = stop_event
@@ -131,7 +139,10 @@ class Downloader:
         self.__event_download_in_progress = Event()
         self.__navigation = None
         self.__https_session: Optional[requests.Session] = None
-        self.__progress_wrapper = progress_wrapper  # CLI progress bar wrapper
+        self.__progress_wrapper = (
+            progress_wrapper  # CLI progress bar wrapper (deprecated)
+        )
+        self.__progress_manager = progress_manager  # GUI progress manager
 
         # Track active downloads for cancellation
         self.__active_downloads: list = []
@@ -143,18 +154,52 @@ class Downloader:
         )
         self.__thread.start()
 
-    def __update_progress(self, phase: str, current: int):
+    def __update_progress(self, phase: str, delta: int):
         """Update progress for the specified phase.
 
         Args:
             phase: Either 'transfer' or 'encrypt'
-            current: Current bytes processed
+            delta: Bytes processed in this update (incremental)
         """
+        # Update CLI progress wrapper
         if self.__progress_wrapper:
             if phase == "transfer":
-                self.__progress_wrapper.update_transfer(current)
+                self.__progress_wrapper.update_transfer(delta)
             elif phase == "encrypt":
-                self.__progress_wrapper.update_encrypt(current)
+                self.__progress_wrapper.update_encrypt(delta)
+
+        # Track cumulative progress for ProgressManager
+        if self.__progress_manager and self.__download_en_cours:
+            filename = getattr(self.__download_en_cours, "nom", "unknown")
+
+            if phase == "transfer":
+                # Update cumulative received size
+                self.__download_en_cours.taille_recue += delta
+
+                # Calculate percentage
+                if hasattr(self.__download_en_cours, "taille_chiffree"):
+                    progress = (
+                        self.__download_en_cours.taille_recue
+                        / self.__download_en_cours.taille_chiffree
+                    ) * 100
+                    self.__progress_manager.update_download_transfer(filename, progress)
+
+            elif phase == "encrypt":
+                # Update cumulative decrypted size
+                self.__download_en_cours.taille_dechiffree += delta
+
+                # Calculate percentage - use total encrypted size as denominator
+                # (decrypted data size is typically similar to encrypted size)
+                if hasattr(self.__download_en_cours, "taille_chiffree"):
+                    progress = min(
+                        100.0,
+                        (
+                            self.__download_en_cours.taille_dechiffree
+                            / max(1, self.__download_en_cours.taille_chiffree)
+                        )
+                        * 100,
+                    )
+                    self.__progress_manager.update_download_decrypt(filename, progress)
 
     def quit(self):
         self.__download_pret.set()
@@ -168,6 +213,16 @@ class Downloader:
     def progress_wrapper(self, value):
         """Set the progress wrapper for CLI mode."""
         self.__progress_wrapper = value
+
+    @property
+    def progress_manager(self):
+        """Get the progress manager for GUI mode."""
+        return self.__progress_manager
+
+    @progress_manager.setter
+    def progress_manager(self, value):
+        """Set the progress manager for GUI mode."""
+        self.__progress_manager = value
 
     def set_navigation(self, navigation):
         self.__navigation = navigation
@@ -188,6 +243,16 @@ class Downloader:
         with self.__active_downloads_lock:
             self.__active_downloads.append(download_item)
 
+        # Add to ProgressManager queue for GUI display
+        if self.__progress_manager:
+            self.__progress_manager.add_to_download_queue(
+                {
+                    "filename": download_item.nom,
+                    "size": download_item.taille_chiffree,
+                    "tuuid": download_item.tuuid,
+                }
+            )
+
         return download_item
 
     def ajouter_download_repertoire(self, repertoire, destination=None):
@@ -202,6 +267,12 @@ class Downloader:
         # Track active download
         with self.__active_downloads_lock:
             self.__active_downloads.append(download_item)
+
+        # Add to ProgressManager queue for GUI display
+        if self.__progress_manager:
+            self.__progress_manager.add_to_download_queue(
+                {"filename": download_item.nom, "size": 0, "tuuid": download_item.tuuid}
+            )
 
         return download_item
 
@@ -249,6 +320,10 @@ class Downloader:
             if download_item in self.__active_downloads:
                 self.__active_downloads.remove(download_item)
 
+        # Also remove from ProgressManager queue
+        if self.__progress_manager:
+            self.__progress_manager.remove_from_download_queue(download_item.tuuid)
+
     def download_thread(self):
         while self.__stop_event.is_set() is False:
             # self.update_download_status()
@@ -271,6 +346,14 @@ class Downloader:
                         else:
                             item_name = "unknown"
                         try:
+                            # Set as current in ProgressManager before starting download
+                            if self.__progress_manager and self.__download_en_cours:
+                                item_name = self.__download_en_cours.nom
+                                tuuid = self.__download_en_cours.tuuid
+                                self.__progress_manager.set_current_download(
+                                    {"filename": item_name, "tuuid": tuuid}
+                                )
+
                             if isinstance(self.__download_en_cours, DownloadFichier):
                                 self.download_fichier(self.__download_en_cours)
                                 self.__logger.debug(
@@ -297,6 +380,9 @@ class Downloader:
                                 "Erreur download fichier %s" % item_name
                             )
                         finally:
+                            # Clear current download from ProgressManager after completion
+                            if self.__progress_manager:
+                                self.__progress_manager.set_current_download(None)
                             self.__download_en_cours = None
 
     # def __download_label_thread(self):
@@ -494,6 +580,9 @@ class Downloader:
                     item.taille_recue += len(chunk)
                     if self.__progress_wrapper:
                         self.__update_progress("transfer", len(chunk))
+                    elif self.__progress_manager:
+                        # Update ProgressManager even if progress_wrapper is not set (GUI mode)
+                        self.__update_progress("transfer", len(chunk))
                     if self.__stop_event.is_set() is True:
                         path_reception_work.unlink()
                         raise Exception("Stopping")
@@ -520,7 +609,12 @@ class Downloader:
             raise CancelledDownloadException()
 
         try:
-            dechiffrer_in_place(item, path_reception_work, self.__progress_wrapper)
+            dechiffrer_in_place(
+                item,
+                path_reception_work,
+                self.__progress_wrapper,
+                self.__progress_manager,
+            )
         except Exception as e:
             # Check if it's a cancellation exception
             if "cancelled" in str(e).lower():
@@ -549,12 +643,18 @@ class Downloader:
         self._remove_completed_download(item)
 
 
-def dechiffrer_in_place(item, path_reception, progress_wrapper=None):
+def dechiffrer_in_place(
+    item,
+    path_reception,
+    progress_wrapper=None,  # CLI progress bar wrapper (deprecated)
+    progress_manager=None,  # GUI progress manager
+):
     """
     Dechiffre un fichier en reutilisant l'espace deja occupe (overwrite).
     :param item: DownloadFichier instance
     :param path_reception: Path to the encrypted file
-    :param progress_wrapper: Optional ProgressBarWrapper for progress updates
+    :param progress_wrapper: Optional ProgressBarWrapper for progress updates (CLI)
+    :param progress_manager: Optional ProgressManager for progress updates (GUI)
     :return:
     """
     with open(path_reception, "rb+") as fichier:
@@ -581,6 +681,14 @@ def dechiffrer_in_place(item, path_reception, progress_wrapper=None):
                 if progress_wrapper:
                     progress_wrapper.update_encrypt(len(chunk_dechiffre))
 
+                # Also report to ProgressManager if available
+                if progress_manager:
+                    filename = getattr(item, "nom", "unknown")
+                    progress = (
+                        position_write / max(1, getattr(item, "taille_chiffree", 1))
+                    ) * 100
+                    progress_manager.update_download_decrypt(filename, progress)
+
         # Check for cancellation before finalization
         if item.is_cancelled():
             raise CancelledDownloadException()
@@ -592,6 +700,14 @@ def dechiffrer_in_place(item, path_reception, progress_wrapper=None):
             position_write += len(chunk_dechiffre)
             if progress_wrapper:
                 progress_wrapper.update_encrypt(len(chunk_dechiffre))
+
+            # Report final progress to ProgressManager
+            if progress_manager:
+                filename = getattr(item, "nom", "unknown")
+                progress = (
+                    position_write / max(1, getattr(item, "taille_chiffree", 1))
+                ) * 100
+                progress_manager.update_download_decrypt(filename, min(100.0, progress))
 
         # Tronquer fichier a la position d'ecriture courante
         fichier.truncate()

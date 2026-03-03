@@ -5,6 +5,7 @@ from typing import Optional
 from tksample1.AuthUsager import Authentification
 from tksample1.Downloader import Downloader, DownloadFichier
 from tksample1.ProgressBar import ProgressBarWrapper
+from tksample1.ProgressManager import ProgressManager
 from tksample1.Uploader import Uploader
 
 
@@ -20,8 +21,12 @@ class TransferHandler:
         self.connexion = connexion
         self.transfer_frame = None  # type: ignore[assignment]
 
-        self.downloader = Downloader(self.__stop_event, connexion)
-        self.uploader = Uploader(self.__stop_event, connexion)
+        self.progress_manager = ProgressManager()
+
+        self.downloader = Downloader(
+            self.__stop_event, connexion, self.progress_manager
+        )
+        self.uploader = Uploader(self.__stop_event, connexion, self.progress_manager)
 
         self.__navigation = None
 
@@ -89,8 +94,7 @@ class TransferHandler:
             self.__transfer_dirty.clear()
             try:
                 if self.transfer_frame is not None:  # type: ignore
-                    # Update status
-                    # status_download = 'Download inactif'
+                    # Update status for Files tab
                     status_download, download_en_cours, q_download = (
                         self.downloader.download_status()
                     )
@@ -109,7 +113,7 @@ class TransferHandler:
 
                     if self.__upload_dirty:
                         self.__upload_dirty = False
-                        # Refresh liste uploads
+                        # Refresh upload list in Files tab
                         self.transfer_frame.refresh_upload(upload_en_cours, q_upload)  # type: ignore
 
                     if download_comp is not download_en_cours:
@@ -121,10 +125,18 @@ class TransferHandler:
 
                     if self.__download_dirty:
                         self.__download_dirty = False
-                        # Refresh liste downloads
+                        # Refresh download list in Files tab
                         self.transfer_frame.refresh_download(  # type: ignore
                             download_en_cours, q_download
                         )
+
+                    # Update Transferts tab queues
+                    self.transfer_frame._update_download_queue(  # type: ignore
+                        download_en_cours, q_download
+                    )
+                    self.transfer_frame._update_upload_queue(  # type: ignore
+                        upload_en_cours, q_upload
+                    )
             except Exception:
                 self.__logger.exception("Erreur refresh transferts")
                 self.__transfer_dirty.wait(timeout=10)
