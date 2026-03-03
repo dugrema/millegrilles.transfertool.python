@@ -19,6 +19,16 @@ import pytz
 class NavigationFrame(tk.Frame):
     """GUI frame for file system navigation controls."""
 
+    @staticmethod
+    def _format_size(size: int) -> str:
+        """Format size in human-readable format."""
+        size_float = float(size)
+        for unit in ["B", "KB", "MB", "GB"]:
+            if size_float < 1024:
+                return f"{size_float:.1f}{unit}"
+            size_float /= 1024
+        return f"{size_float:.1f}TB"
+
     def __init__(self, navigation, *args, **kwargs):
         """Initialize the navigation frame.
 
@@ -266,7 +276,7 @@ class NavigationFrame(tk.Frame):
                 )
             else:
                 version_courante = fichier["version_courante"]
-                taille_fichier = version_courante["taille"]
+                taille_fichier = self._format_size(version_courante["taille"])
                 type_fichier = "Fichier"
                 date_fichier = datetime.datetime.fromtimestamp(
                     metadata["dateFichier"], tz=pytz.UTC
