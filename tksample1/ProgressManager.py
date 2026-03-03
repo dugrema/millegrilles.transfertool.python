@@ -6,9 +6,8 @@ for upload and download operations, managing queues and callback notifications.
 
 import logging
 import time
-import tkinter as tk
 from threading import Lock
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 
 class ProgressManager:
@@ -19,7 +18,7 @@ class ProgressManager:
     maintaining pending queues and notifying registered callbacks.
     """
 
-    def __init__(self, root: Optional[tk.Tk] = None):
+    def __init__(self, root: Optional[Any] = None):
         """Initialize the ProgressManager.
 
         Args:
@@ -94,7 +93,12 @@ class ProgressManager:
         """
         if self._root is not None:
             # Use tkinter's after() for thread-safe GUI updates
-            self._root.after(0, callback, *args)
+            import tkinter as tk
+
+            if isinstance(self._root, tk.Tk):
+                self._root.after(0, callback, *args)
+            else:
+                callback(*args)
         else:
             # Fallback for backward compatibility (not thread-safe)
             callback(*args)

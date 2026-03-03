@@ -12,7 +12,6 @@ import time
 from threading import Event, Thread, active_count, enumerate
 from typing import Optional
 
-from tksample1.CLI import CLIHandler
 from tksample1.Configuration import Configuration
 from tksample1.GuiCapability import determine_execution_mode
 
@@ -142,6 +141,9 @@ class App:
 
         # Initialize based on mode
         if self.cli_mode:
+            # Lazy import of CLI handler (only when CLI mode is active)
+            from tksample1.CLI import CLIHandler
+
             self.cli_handler = CLIHandler(
                 self.__stop_event, self.auth, self.navigation, self.transfer_handler
             )

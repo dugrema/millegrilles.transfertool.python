@@ -9,7 +9,6 @@ from typing import List, Optional
 from tksample1.Downloader import CancelledDownloadException
 from tksample1.FileTransfer import TransferHandler
 from tksample1.Navigation import Navigation, Repertoire, sync_collection
-from tksample1.ProgressBar import DownloadProgressBar, UploadProgressBar
 
 
 class CLIHandler:
@@ -800,6 +799,9 @@ class CLIHandler:
             elif type_node == "Fichier":
                 print(f"Downloading file '{filename}'...")
 
+                # Import only when needed (lazy import)
+                from tksample1.ProgressBar import DownloadProgressBar
+
                 # Create progress bar for download
                 download_progress = DownloadProgressBar(filename)
 
@@ -918,6 +920,9 @@ class CLIHandler:
 
                 # Get file size for progress bar
                 file_size = path_upload.stat().st_size
+
+                # Import only when needed (lazy import)
+                from tksample1.ProgressBar import UploadProgressBar
 
                 # Create progress bar for upload
                 upload_progress = UploadProgressBar(path_upload.name)
