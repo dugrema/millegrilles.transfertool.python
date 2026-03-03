@@ -176,12 +176,16 @@ class Downloader:
                 # Update cumulative received size
                 self.__download_en_cours.taille_recue += delta
 
-                # Calculate percentage
+                # Calculate percentage (capped at 100%)
                 if hasattr(self.__download_en_cours, "taille_chiffree"):
-                    progress = (
-                        self.__download_en_cours.taille_recue
-                        / self.__download_en_cours.taille_chiffree
-                    ) * 100
+                    progress = min(
+                        100.0,
+                        (
+                            self.__download_en_cours.taille_recue
+                            / self.__download_en_cours.taille_chiffree
+                        )
+                        * 100,
+                    )
                     self.__progress_manager.update_download_transfer(filename, progress)
 
             elif phase == "encrypt":
@@ -577,7 +581,6 @@ class Downloader:
                 for chunk in response.iter_content(chunk_size=64 * 1024):
                     output.write(chunk)
                     chunks_done += 1
-                    item.taille_recue += len(chunk)
                     if self.__progress_wrapper:
                         self.__update_progress("transfer", len(chunk))
                     elif self.__progress_manager:
@@ -607,6 +610,12 @@ class Downloader:
         if item.is_cancelled():
             path_reception_work.unlink()
             raise CancelledDownloadException()
+
+        # Set download transfer progress to 100% before starting decryption
+        if self.__progress_manager:
+            self.__progress_manager.set_download_transfer_complete(
+                getattr(item, "nom", "unknown")
+            )
 
         # Reset download decrypt progress bar before starting new decryption
         if self.__progress_manager:
@@ -707,13 +716,10 @@ def dechiffrer_in_place(
             if progress_wrapper:
                 progress_wrapper.update_encrypt(len(chunk_dechiffre))
 
-            # Report final progress to ProgressManager
+            # Set download decrypt progress to 100% when decryption is complete
             if progress_manager:
                 filename = getattr(item, "nom", "unknown")
-                progress = (
-                    position_write / max(1, getattr(item, "taille_chiffree", 1))
-                ) * 100
-                progress_manager.update_download_decrypt(filename, min(100.0, progress))
+                progress_manager.set_download_decrypt_complete(filename)
 
         # Tronquer fichier a la position d'ecriture courante
         fichier.truncate()

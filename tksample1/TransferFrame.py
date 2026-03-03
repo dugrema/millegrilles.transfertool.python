@@ -33,19 +33,11 @@ class TransferFrame(tk.Frame):
         # Call super().__init__() first before creating child widgets
         super().__init__(*args, **kwargs)
 
-        # Create notebook container
-        self.__notebook_container = tk.Frame(self)
-        self.__notebook_container.grid(row=0, column=0, sticky="nsew")
-
         # Configure grid weights for TransferFrame
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
-        # Configure grid weights for notebook container
-        # self.__notebook_container.grid_rowconfigure(0, weight=1)
-        # self.__notebook_container.grid_columnconfigure(0, weight=1)
-
-        # Create Transferts tab directly (no notebook, single tab view)
+        # Create Transferts frame directly (no notebook, single tab view)
         self.__create_transferts_tab()
 
     def _format_size(self, size: int) -> str:
@@ -54,7 +46,7 @@ class TransferFrame(tk.Frame):
 
     def __create_transferts_tab(self):
         """Create the Transferts tab with progress bars and pending queues."""
-        self.__frame_transferts = tk.Frame(self.__notebook_container)
+        self.__frame_transferts = tk.Frame(self)
 
         # Upload Section
         self.__frame_upload = tk.LabelFrame(self.__frame_transferts, text="Uploads")
@@ -189,7 +181,7 @@ class TransferFrame(tk.Frame):
         self.__frame_transferts.grid_rowconfigure(1, weight=1)
         self.__frame_transferts.grid_columnconfigure(0, weight=1)
 
-        # Add Transferts frame directly to container (no tab)
+        # Add Transferts frame directly to TransferFrame (no tab)
         self.__frame_transferts.grid(row=0, column=0, sticky="nsew")
 
     def _create_scrollable_list(self, master, row, column):

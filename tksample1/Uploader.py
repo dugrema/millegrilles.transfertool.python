@@ -752,6 +752,10 @@ class Uploader:
             fuuid = info_dechiffrage["hachage_bytes"]
             encrypted_size = cipher.taille_chiffree
 
+            # Set upload encrypt progress to 100% before starting transfer
+            if self.__progress_manager:
+                self.__progress_manager.set_upload_encrypt_complete(upload.path.name)
+
             # Reset upload transfer progress bar before starting new upload
             if self.__progress_manager:
                 self.__progress_manager.reset_upload_transfer(upload.path.name)
@@ -781,6 +785,10 @@ class Uploader:
                 url_put = f"{self.__connexion.filehost_url}/files/{fuuid}/{position}"
                 response = self.__https_session.put(url_put, data=stream)
                 response.raise_for_status()
+
+            # Set upload transfer progress to 100% when upload is complete
+            if self.__progress_manager:
+                self.__progress_manager.set_upload_transfer_complete(upload.path.name)
 
         fuuid_rechiffre = cipher.hachage
         # Clean up temporary file

@@ -231,6 +231,24 @@ class ProgressManager:
         if self.__download_reset_callback is not None:
             self._invoke_callback(self.__download_reset_callback, filename)
 
+    def set_download_transfer_complete(self, filename: str):
+        """Set download transfer progress to 100% before starting decryption.
+
+        Args:
+            filename: Name of the file being downloaded
+        """
+        if self.__download_transfer_callback is not None:
+            self._invoke_callback(self.__download_transfer_callback, filename, 100.0)
+
+    def set_download_decrypt_complete(self, filename: str):
+        """Set download decryption progress to 100% when decryption is complete.
+
+        Args:
+            filename: Name of the file being decrypted
+        """
+        if self.__download_decrypt_callback is not None:
+            self._invoke_callback(self.__download_decrypt_callback, filename, 100.0)
+
     def update_upload_encrypt(self, filename: str, progress: float):
         """Report upload encryption progress.
 
@@ -265,6 +283,24 @@ class ProgressManager:
         """
         if self.__upload_reset_callback is not None:
             self._invoke_callback(self.__upload_reset_callback, filename)
+
+    def set_upload_encrypt_complete(self, filename: str):
+        """Set upload encryption progress to 100% before starting upload.
+
+        Args:
+            filename: Name of the file being encrypted
+        """
+        if self.__upload_encrypt_callback is not None:
+            self._invoke_callback(self.__upload_encrypt_callback, filename, 100.0)
+
+    def set_upload_transfer_complete(self, filename: str):
+        """Set upload transfer progress to 100% when upload is complete.
+
+        Args:
+            filename: Name of the file being uploaded
+        """
+        if self.__upload_transfer_callback is not None:
+            self._invoke_callback(self.__upload_transfer_callback, filename, 100.0)
 
     def _should_update(self, update_type: str) -> bool:
         """Check if progress update should be invoked based on throttling.
