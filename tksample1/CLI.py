@@ -831,17 +831,14 @@ class CLIHandler:
                 except Exception as e:
                     raise
 
+                # Close progress bars after decryption completes
+                # Note: transition_to_decrypt() is called by Downloader when download completes
+                download_progress.close()
+
                 # Check if cancelled
                 if download_item.is_cancelled():
                     print(f"\nDownload cancelled: '{filename}'")
-                    download_progress.close()
                     return
-
-                # Start decrypt phase after download completes
-                download_progress.start_decrypt()
-
-                # Close progress bars
-                download_progress.close()
 
                 print(f"Download complete: '{filename}'")
             else:

@@ -152,6 +152,36 @@ class ProgressBarWrapper:
         elif self.current_phase == "transfer":
             self.update_transfer(amount)
 
+    def transition_to_encrypt_phase(
+        self, total: Optional[int] = None, desc: str = "Decrypting"
+    ):
+        """
+        Transition from transfer phase to encrypt phase without recreating the bar.
+
+        This method closes the transfer bar and creates a new encrypt bar,
+        ensuring a clean phase transition.
+
+        Args:
+            total: Total bytes for this phase (if known)
+            desc: Description for the encrypt phase
+        """
+        # Close transfer phase if it exists
+        if self.current_phase == "transfer" and "transfer" in self.phase_bars:
+            self.phase_bars["transfer"].close()
+            del self.phase_bars["transfer"]
+
+        # Start encrypt phase
+        self.current_phase = "encrypt"
+        self.phase_bars["encrypt"] = tqdm(
+            desc=f"  {desc}:",
+            total=total,
+            unit="B",
+            unit_scale=True,
+            unit_divisor=1024,
+            bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} ({percentage:.0f}%)",
+        )
+        return self.phase_bars["encrypt"]
+
     def _close_current_phase(self):
         """Close the current phase progress bar if it exists."""
         if self.current_phase and self.current_phase in self.phase_bars:
@@ -249,6 +279,17 @@ class DownloadProgressBar:
             amount: Bytes downloaded
         """
         self.wrapper.update_transfer(amount)
+
+    def transition_to_decrypt(self):
+        """
+        Transition from download phase to decrypt phase.
+
+        This should be called when download completes and decryption starts.
+        It properly transitions the progress bar from transfer to decrypt mode.
+        """
+        self.wrapper.transition_to_encrypt_phase(
+            total=self.encrypted_size, desc="Decrypting"
+        )
 
     def start_decrypt(self):
         """Start the decryption phase."""

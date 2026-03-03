@@ -492,10 +492,8 @@ class Downloader:
                         # Download the file
                         self.download_fichier(download_fichier)
 
-                        # Start decrypt phase after download completes
-                        progress_bar.start_decrypt()
-
-                        # Close progress bar
+                        # Transition to decrypt is handled by download_fichier
+                        # Close progress bar after decryption completes
                         progress_bar.close()
 
                         # Restore old progress wrapper
@@ -605,6 +603,17 @@ class Downloader:
                 "Download fichier %s complete, dechiffrage en cours"
                 % path_reception_work
             )
+
+            # Transition progress bar from download to decrypt phase
+            if self.__progress_wrapper:
+                # The progress_wrapper might be a DownloadProgressBar or just a ProgressBarWrapper
+                if hasattr(self.__progress_wrapper, "transition_to_decrypt"):
+                    self.__progress_wrapper.transition_to_decrypt()  # type: ignore[attr-defined]
+                else:
+                    # Fallback for ProgressBarWrapper - pass encrypted size as total
+                    self.__progress_wrapper.transition_to_encrypt_phase(
+                        total=item.taille_chiffree, desc="Decrypting"
+                    )
 
         # Check for cancellation before decryption
         if item.is_cancelled():
