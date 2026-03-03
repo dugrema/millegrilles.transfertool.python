@@ -1182,8 +1182,8 @@ class CLIHandler:
 
             print(f"Directory '{dir_name}' created successfully (tuuid: {cuuid})")
 
-            # Refresh current directory state to include new directory
-            self._get_current_repertoire_from_navigation()
+            # Refresh current directory to include newly created directory
+            self.__navigation.refresh()
 
         except Exception as e:
             self.__logger.exception("Error during mkdir operation")
