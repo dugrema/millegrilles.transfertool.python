@@ -182,6 +182,36 @@ class ProgressBarWrapper:
         )
         return self.phase_bars["encrypt"]
 
+    def transition_to_transfer_phase(
+        self, total: Optional[int] = None, desc: str = "Uploading"
+    ):
+        """
+        Transition from encrypt phase to transfer phase without recreating the bar.
+
+        This method closes the encrypt bar and creates a new transfer bar,
+        ensuring a clean phase transition for uploads.
+
+        Args:
+            total: Total bytes for this phase (if known)
+            desc: Description for the transfer phase
+        """
+        # Close encrypt phase if it exists
+        if self.current_phase == "encrypt" and "encrypt" in self.phase_bars:
+            self.phase_bars["encrypt"].close()
+            del self.phase_bars["encrypt"]
+
+        # Start transfer phase
+        self.current_phase = "transfer"
+        self.phase_bars["transfer"] = tqdm(
+            desc=f"  {desc}:",
+            total=total,
+            unit="B",
+            unit_scale=True,
+            unit_divisor=1024,
+            bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} ({percentage:.0f}%)",
+        )
+        return self.phase_bars["transfer"]
+
     def _close_current_phase(self):
         """Close the current phase progress bar if it exists."""
         if self.current_phase and self.current_phase in self.phase_bars:
@@ -315,6 +345,17 @@ class DownloadProgressBar:
         if "encrypt" in self.wrapper.phase_bars:
             self.wrapper.phase_bars["encrypt"].total = size
             self.wrapper.phase_bars["encrypt"].refresh()
+
+    def transition_to_upload(self):
+        """
+        Transition from encrypt phase to upload/transfer phase.
+
+        This should be called when encryption completes and upload starts.
+        It properly transitions the progress bar from encrypt to transfer mode.
+        """
+        self.wrapper.transition_to_transfer_phase(
+            total=self.encrypted_size, desc="Uploading"
+        )
 
     def close(self):
         """Close all progress bars."""

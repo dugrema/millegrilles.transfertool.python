@@ -752,6 +752,17 @@ class Uploader:
             fuuid = info_dechiffrage["hachage_bytes"]
             encrypted_size = cipher.taille_chiffree
 
+            # Transition progress bar from encrypt to upload phase
+            if self.__progress_wrapper:
+                # The progress_wrapper might be an UploadProgressBar or just a ProgressBarWrapper
+                if hasattr(self.__progress_wrapper, "transition_to_upload"):
+                    self.__progress_wrapper.transition_to_upload()  # type: ignore[attr-defined]
+                else:
+                    # Fallback for ProgressBarWrapper - pass encrypted size as total
+                    self.__progress_wrapper.transition_to_transfer_phase(
+                        total=encrypted_size, desc="Uploading"
+                    )
+
             # Set upload encrypt progress to 100% before starting transfer
             if self.__progress_manager:
                 self.__progress_manager.set_upload_encrypt_complete(upload.path.name)
