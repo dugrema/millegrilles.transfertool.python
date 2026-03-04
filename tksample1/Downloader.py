@@ -262,6 +262,7 @@ class Downloader:
                     "filename": download_item.nom,
                     "size": download_item.taille_chiffree,
                     "tuuid": download_item.tuuid,
+                    "inline": download_item.inline,
                 }
             )
 

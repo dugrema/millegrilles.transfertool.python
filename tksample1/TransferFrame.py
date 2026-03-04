@@ -241,8 +241,19 @@ class TransferFrame(tk.Frame):
         # Get current items in listbox
         current_items = list(self.__download_queue_listbox.get(0, tk.END))
 
-        # Build list of new items
-        new_items = [item.nom for item in q]
+        # Build list of new items with mode indicators
+        new_items = []
+        for item in q:
+            mode_str = ""
+            # Try to get inline mode from ProgressManager via tuuid
+            if hasattr(item, "tuuid") and self.__transfer_handler:
+                is_inline = (
+                    self.__transfer_handler.progress_manager.get_download_inline_mode(
+                        item.tuuid
+                    )
+                )
+                mode_str = " [INLINE]" if is_inline else " [2PHASE]"
+            new_items.append(item.nom + mode_str)
 
         # Only update if items actually changed
         if current_items != new_items:
@@ -297,11 +308,24 @@ class TransferFrame(tk.Frame):
     def on_download_transfer_progress(self, filename: str, progress: float):
         """Callback for download transfer progress."""
         self.__download_transfer_var.set(progress)
+
+        # Get mode indicator from current download
+        mode_label = ""
+        if self.__transfer_handler and self.__transfer_handler.progress_manager:
+            current_download = (
+                self.__transfer_handler.progress_manager.get_current_download()
+            )
+            if current_download:
+                is_inline = current_download.get("inline", False)
+                mode_label = " [INLINE]" if is_inline else " [2PHASE]"
+
         size_info = self._get_download_size_info(filename)
         if size_info:
-            self.__download_transfer_label.set(f"[File: {filename} - {size_info}]")
+            self.__download_transfer_label.set(
+                f"[File: {filename} - {size_info}]" + mode_label
+            )
         else:
-            self.__download_transfer_label.set(f"[File: {filename}]")
+            self.__download_transfer_label.set(f"[File: {filename}]" + mode_label)
         self.__download_transfer_pct_var.set(f"{int(progress)}%")
 
     def on_download_reset(self, filename: str):
@@ -313,7 +337,18 @@ class TransferFrame(tk.Frame):
     def on_download_decrypt_progress(self, filename: str, progress: float):
         """Callback for download decryption progress."""
         self.__download_decrypt_var.set(progress)
-        self.__download_decrypt_label.set(f"[File: {filename}]")
+
+        # Get mode indicator from current download
+        mode_label = ""
+        if self.__transfer_handler and self.__transfer_handler.progress_manager:
+            current_download = (
+                self.__transfer_handler.progress_manager.get_current_download()
+            )
+            if current_download:
+                is_inline = current_download.get("inline", False)
+                mode_label = " [INLINE]" if is_inline else " [2PHASE]"
+
+        self.__download_decrypt_label.set(f"[File: {filename}]" + mode_label)
         self.__download_decrypt_pct_var.set(f"{int(progress)}%")
 
     def _get_upload_size_info(self, filename: str) -> str:

@@ -42,6 +42,9 @@ class NavigationFrame(tk.Frame):
         self.__navigation = navigation
         self.__repertoire = None
 
+        # Add inline mode toggle
+        self.__inline_var = tk.BooleanVar(value=False)
+
         self.__frame_actions = tk.Frame(master=self)
         self.__btn_creer_collection = tk.Button(
             master=self.__frame_actions,
@@ -69,6 +72,15 @@ class NavigationFrame(tk.Frame):
             master=self.__frame_actions, text="Refresh", command=self.btn_refresh
         )
         self.__btn_refresh.grid(row=0, column=4)
+
+        # Add inline mode checkbox
+        self.__chk_inline = ttk.Checkbutton(
+            master=self.__frame_actions,
+            text="Inline",
+            variable=self.__inline_var,
+            command=self.__on_inline_toggle,
+        )
+        self.__chk_inline.grid(row=0, column=5, padx=5)
 
         self.__frame_breadcrumb = tk.Frame(master=self)
         self.__breadcrumb_path = pathlib.Path("Favoris/")
@@ -154,7 +166,13 @@ class NavigationFrame(tk.Frame):
         """Handle download button click."""
         selection = self.dirlist.selection()
         for tuuid in selection:
-            self.__navigation.ajouter_download(tuuid)
+            inline_mode = self.__inline_var.get()
+            self.__navigation.ajouter_download(tuuid, inline=inline_mode)
+
+    def __on_inline_toggle(self):
+        """Handle inline mode toggle - could update UI indicators."""
+        # Optional: Update status bar or add visual indicator
+        pass
 
     def btn_upload_handler(self):
         """Handle upload button click."""
@@ -284,4 +302,5 @@ class NavigationFrame(tk.Frame):
         if values[1] != "Fichier":
             self.__navigation.changer_cuuid(tuuid)
         else:
-            self.__navigation.ajouter_download(tuuid)
+            inline_mode = self.__inline_var.get()
+            self.__navigation.ajouter_download(tuuid, inline=inline_mode)

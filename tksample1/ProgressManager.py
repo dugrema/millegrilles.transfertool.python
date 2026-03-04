@@ -46,6 +46,7 @@ class ProgressManager:
         # Download queue and current transfer
         self.__download_queue: list = []
         self.__current_download: Optional[dict] = None
+        self.__download_queue_inline: dict = {}  # Track inline mode for each tuuid
 
         # Upload queue and current transfer
         self.__upload_queue: list = []
@@ -108,10 +109,13 @@ class ProgressManager:
         """Add an item to the download queue.
 
         Args:
-            item: Dictionary containing 'filename', 'size', and 'tuuid'
+            item: Dictionary containing 'filename', 'size', 'tuuid', and optionally 'inline'
         """
         with self.__lock:
             self.__download_queue.append(item)
+            # Track inline mode for this download
+            if "tuuid" in item:
+                self.__download_queue_inline[item["tuuid"]] = item.get("inline", False)
 
     def remove_from_download_queue(self, tuuid: str):
         """Remove an item from the download queue by tuuid.
@@ -123,6 +127,9 @@ class ProgressManager:
             self.__download_queue = [
                 item for item in self.__download_queue if item.get("tuuid") != tuuid
             ]
+            # Also remove inline tracking
+            if tuuid in self.__download_queue_inline:
+                del self.__download_queue_inline[tuuid]
 
     def set_current_download(self, item: Optional[dict]):
         """Set the current download in progress.
@@ -150,6 +157,18 @@ class ProgressManager:
         """
         with self.__lock:
             return self.__current_download
+
+    def get_download_inline_mode(self, tuuid: str) -> bool:
+        """Get the inline mode for a specific download.
+
+        Args:
+            tuuid: The tuuid of the download
+
+        Returns:
+            True if inline mode, False if two-phase mode
+        """
+        with self.__lock:
+            return self.__download_queue_inline.get(tuuid, False)
 
     # Upload queue management
     def add_to_upload_queue(self, item: dict):
