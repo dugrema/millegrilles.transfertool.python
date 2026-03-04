@@ -59,8 +59,12 @@ class TransferHandler:
         self.__download_dirty = True
         self.__transfer_dirty.set()
 
-    def ajouter_download_fichier(self, download, destination=None) -> DownloadFichier:
-        return self.downloader.ajouter_download_fichier(download, destination)
+    def ajouter_download_fichier(
+        self, download, destination=None, inline: bool = False
+    ) -> DownloadFichier:
+        return self.downloader.ajouter_download_fichier(
+            download, destination, inline=inline
+        )
 
     def ajouter_download_repertoire(self, repertoire, destination=None):
         return self.downloader.ajouter_download_repertoire(repertoire, destination)

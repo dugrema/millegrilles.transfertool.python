@@ -36,7 +36,7 @@ class CancelledDownloadException(Exception):
 
 
 class DownloadFichier:
-    def __init__(self, download_info, destination: pathlib.Path):
+    def __init__(self, download_info, destination: pathlib.Path, inline: bool = False):
         self.__info = download_info
         self.cle_secrete = download_info["secret_key"]
         metadata = download_info["metadata"]
@@ -49,11 +49,12 @@ class DownloadFichier:
             self.nonce: str = version_courante["nonce"]
             self.format: str = version_courante["format"]
         except KeyError:
-            key_info = download_info['key_info']
-            self.nonce: str = key_info['nonce']
-            self.format: str = key_info['format']
+            key_info = download_info["key_info"]
+            self.nonce = key_info["nonce"]
+            self.format = key_info["format"]
 
         self.path_destination = destination
+        self.inline = inline
 
         self.download_complete = Event()
         self.__cancel_event = Event()
@@ -239,12 +240,14 @@ class Downloader:
     def set_url_download(self, url_download: parse.ParseResult):
         self.__url_download = url_download
 
-    def ajouter_download_fichier(self, download, destination=None) -> DownloadFichier:
+    def ajouter_download_fichier(
+        self, download, destination=None, inline: bool = False
+    ) -> DownloadFichier:
         destination = destination or self.__connexion.download_path
         if destination.exists() is False:
             destination.mkdir()
 
-        download_item = DownloadFichier(download, destination)
+        download_item = DownloadFichier(download, destination, inline=inline)
         self.__download_queue.append(download_item)
         self.__download_pret.set()
 
@@ -538,6 +541,14 @@ class Downloader:
         self._remove_completed_download(item)
 
     def download_fichier(self, item: DownloadFichier):
+        """Dispatch to appropriate download method based on inline flag."""
+        if item.inline:
+            self._download_fichier_inline(item)
+        else:
+            self._download_fichier_twophase(item)
+
+    def _download_fichier_inline(self, item: DownloadFichier):
+        """Download and decrypt file in single pass (inline mode)."""
         self.__connexion.connect_event.wait()
         if self.__stop_event.is_set():
             raise Exception("Stopping")
@@ -549,7 +560,98 @@ class Downloader:
             raise Exception("Format de chiffrage non supporte")
 
         if self.__https_session is None:
-            # self.__https_session = self.__connexion.get_https_session()
+            https_session = requests.Session()
+            https_session.verify = False
+            https_session.cert = None
+            self.__https_session = https_session
+
+        url_fichier = f"{self.__connexion.filehost_url}/files/{item.fuuid}"
+        path_reception = pathlib.Path(item.path_destination, item.nom)
+        path_reception_work = pathlib.Path(item.path_destination, item.nom + ".work")
+
+        self.__logger.debug(
+            "Debut inline download fichier %s (taille : %d)"
+            % (path_reception_work, item.taille_chiffree)
+        )
+
+        try:
+            # Download and decrypt in single pass
+            decipher = DecipherMgs4(item.cle_secrete, item.nonce)
+            with open(path_reception_work, "wb") as output:
+                response = self.__https_session.get(url_fichier, stream=True)
+                try:
+                    response.raise_for_status()
+                except HTTPError as e:
+                    if e.response.status_code == 401:
+                        self.__connexion.authenticate(self.__https_session)
+                        response = self.__https_session.get(url_fichier, stream=True)
+                        response.raise_for_status()
+                    else:
+                        raise e
+
+                for chunk in response.iter_content(chunk_size=64 * 1024):
+                    if item.is_cancelled():
+                        raise CancelledDownloadException()
+                    if self.__stop_event.is_set():
+                        raise Exception("Stopping")
+
+                    # Decrypt chunk immediately
+                    chunk_dechiffre = decipher.update(chunk)
+                    if chunk_dechiffre:
+                        output.write(chunk_dechiffre)
+                        item.taille_dechiffree += len(chunk_dechiffre)
+
+                    # Update progress
+                    if self.__progress_wrapper:
+                        self.__update_progress("transfer", len(chunk_dechiffre))
+                    elif self.__progress_manager:
+                        self.__update_progress("transfer", len(chunk_dechiffre))
+
+            # Finalize decryption
+            chunk_final = decipher.finalize()
+            if chunk_final:
+                with open(path_reception_work, "ab") as output:
+                    output.write(chunk_final)
+                    item.taille_dechiffree += len(chunk_final)
+                    if self.__progress_wrapper:
+                        self.__update_progress("transfer", len(chunk_final))
+                    elif self.__progress_manager:
+                        self.__update_progress("transfer", len(chunk_final))
+
+            # Check for cancellation before finalization
+            if item.is_cancelled():
+                path_reception_work.unlink()
+                raise CancelledDownloadException()
+
+            # Rename work file to final destination
+            if path_reception.exists():
+                raise FileExistsError()
+            path_reception_work.rename(path_reception)
+
+            self.__logger.debug("Fichier %s dechiffre OK (inline)" % path_reception)
+
+        except FileExistsError:
+            self.__logger.warning("Fichier %s existe deja" % path_reception)
+            item.download_complete.set()
+            return
+        except Exception:
+            if path_reception_work.exists():
+                path_reception_work.unlink()
+            raise
+
+    def _download_fichier_twophase(self, item: DownloadFichier):
+        """Download then decrypt file (traditional two-phase mode)."""
+        self.__connexion.connect_event.wait()
+        if self.__stop_event.is_set():
+            raise Exception("Stopping")
+
+        if item.is_cancelled():
+            raise CancelledDownloadException()
+
+        if item.format != "mgs4":
+            raise Exception("Format de chiffrage non supporte")
+
+        if self.__https_session is None:
             https_session = requests.Session()
             https_session.verify = False
             https_session.cert = None
@@ -574,16 +676,7 @@ class Downloader:
                     response.raise_for_status()
                 except HTTPError as e:
                     if e.response.status_code == 401:
-                        # Authenticate
-                        # auth_message, message_id = self.__connexion.formatteur.signer_message(
-                        #     Constantes.KIND_COMMANDE, {}, 'filehost', True, 'authenticate')
-                        # auth_message["millegrille"] = self.__connexion.formatteur.enveloppe_ca.certificat_pem
-                        # url_auth = f'{self.__connexion.filehost_url}/authenticate'
-                        # auth_response = self.__https_session.post(url_auth, json=auth_message)
-                        # auth_response.raise_for_status()
                         self.__connexion.authenticate(self.__https_session)
-
-                        # Retry download
                         response = self.__https_session.get(url_fichier, stream=True)
                         response.raise_for_status()
                     else:
@@ -595,7 +688,6 @@ class Downloader:
                     if self.__progress_wrapper:
                         self.__update_progress("transfer", len(chunk))
                     elif self.__progress_manager:
-                        # Update ProgressManager even if progress_wrapper is not set (GUI mode)
                         self.__update_progress("transfer", len(chunk))
                     if self.__stop_event.is_set() is True:
                         path_reception_work.unlink()
@@ -604,11 +696,7 @@ class Downloader:
                         path_reception_work.unlink()
                         raise CancelledDownloadException()
         except FileExistsError:
-            # TODO: Voir si on doit resumer
-            self.__logger.warning(
-                "Fichier %s existe deja, voir si on peut le dechiffrer"
-                % path_reception_work
-            )
+            self.__logger.warning("Fichier %s existe deja" % path_reception_work)
             item.download_complete.set()
             return
         else:
@@ -619,11 +707,9 @@ class Downloader:
 
             # Transition progress bar from download to decrypt phase
             if self.__progress_wrapper:
-                # The progress_wrapper might be a DownloadProgressBar or just a ProgressBarWrapper
                 if hasattr(self.__progress_wrapper, "transition_to_decrypt"):
-                    self.__progress_wrapper.transition_to_decrypt()  # type: ignore[attr-defined]
+                    self.__progress_wrapper.transition_to_decrypt()
                 else:
-                    # Fallback for ProgressBarWrapper - pass encrypted size as total
                     self.__progress_wrapper.transition_to_encrypt_phase(
                         total=item.taille_chiffree, desc="Decrypting"
                     )
@@ -653,7 +739,6 @@ class Downloader:
                 self.__progress_manager,
             )
         except Exception as e:
-            # Check if it's a cancellation exception
             if "cancelled" in str(e).lower():
                 self.__logger.info(
                     "Download cancelled, removing %s" % path_reception_work
