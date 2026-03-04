@@ -205,6 +205,7 @@ class Uploader:
         connexion: Authentification,
         progress_manager: Optional[ProgressManager] = None,
         progress_wrapper=None,
+        transfer_handler=None,
     ):
         self.__logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
         self.__stop_event = stop_event
@@ -223,6 +224,7 @@ class Uploader:
             progress_wrapper  # CLI progress bar wrapper (deprecated)
         )
         self.__progress_manager = progress_manager  # GUI progress manager
+        self.__transfer_handler = transfer_handler
 
         # Track active uploads for cancellation
         self.__active_uploads: list = []
@@ -398,6 +400,10 @@ class Uploader:
                     "size": file_size,
                 }
             )
+
+        # Notify TransferHandler to update UI
+        if self.__transfer_handler:
+            self.__transfer_handler.set_upload_dirty()
 
         return upload_item  # type: ignore
 

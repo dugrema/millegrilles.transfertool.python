@@ -125,6 +125,7 @@ class Downloader:
         connexion: Authentification,
         progress_manager: Optional[ProgressManager] = None,
         progress_wrapper=None,  # CLI progress bar wrapper (deprecated)
+        transfer_handler=None,
     ):
         self.__logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
         self.__stop_event = stop_event
@@ -143,6 +144,7 @@ class Downloader:
             progress_wrapper  # CLI progress bar wrapper (deprecated)
         )
         self.__progress_manager = progress_manager  # GUI progress manager
+        self.__transfer_handler = transfer_handler
 
         # Track active downloads for cancellation
         self.__active_downloads: list = []
@@ -243,6 +245,10 @@ class Downloader:
         self.__download_queue.append(download_item)
         self.__download_pret.set()
 
+        self.__logger.debug(
+            f"Download added: {download_item.nom}, queue size: {len(self.__download_queue)}"
+        )
+
         # Track active download
         with self.__active_downloads_lock:
             self.__active_downloads.append(download_item)
@@ -257,6 +263,11 @@ class Downloader:
                 }
             )
 
+        # Notify TransferHandler to update UI
+        if self.__transfer_handler:
+            self.__logger.debug(f"Setting download dirty flag for: {download_item.nom}")
+            self.__transfer_handler.set_download_dirty()
+
         return download_item
 
     def ajouter_download_repertoire(self, repertoire, destination=None):
@@ -268,6 +279,10 @@ class Downloader:
         self.__download_queue.append(download_item)
         self.__download_pret.set()
 
+        self.__logger.debug(
+            f"Directory download added: {download_item.nom}, queue size: {len(self.__download_queue)}"
+        )
+
         # Track active download
         with self.__active_downloads_lock:
             self.__active_downloads.append(download_item)
@@ -277,6 +292,11 @@ class Downloader:
             self.__progress_manager.add_to_download_queue(
                 {"filename": download_item.nom, "size": 0, "tuuid": download_item.tuuid}
             )
+
+        # Notify TransferHandler to update UI
+        if self.__transfer_handler:
+            self.__logger.debug(f"Setting download dirty flag for: {download_item.nom}")
+            self.__transfer_handler.set_download_dirty()
 
         return download_item
 
