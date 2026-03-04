@@ -53,12 +53,11 @@ class TransferHandler:
     def set_upload_dirty(self):
         self.__upload_dirty = True
         self.__transfer_dirty.set()
-        self.__logger.debug(f"Upload dirty flag set")
+        self.__transfer_dirty.set()
 
     def set_download_dirty(self):
         self.__download_dirty = True
         self.__transfer_dirty.set()
-        self.__logger.debug(f"Download dirty flag set")
 
     def ajouter_download_fichier(self, download, destination=None) -> DownloadFichier:
         return self.downloader.ajouter_download_fichier(download, destination)
@@ -116,9 +115,6 @@ class TransferHandler:
                     )
                     status_upload, upload_en_cours, q_upload = (
                         self.uploader.upload_status()
-                    )
-                    self.__logger.debug(
-                        f"thread_status check: download queue size={len(q_download)}, upload queue size={len(q_upload)}"
                     )
 
                     # Track whether we have active transfers
@@ -193,12 +189,10 @@ class TransferHandler:
                     # Only update UI if there are actual changes
                     if upload_changed or download_changed:
                         if upload_changed:
-                            self.__logger.debug(f"Updating upload queue UI")
                             self.transfer_frame._update_upload_queue(
                                 upload_en_cours, q_upload
                             )
                         if download_changed:
-                            self.__logger.debug(f"Updating download queue UI")
                             self.transfer_frame._update_download_queue(
                                 download_en_cours, q_download
                             )

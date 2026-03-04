@@ -45,10 +45,13 @@ class DownloadFichier:
         self.nom = metadata["nom"]
         self.taille_chiffree = version_courante["taille"]
 
-        self.nonce = version_courante.get("nonce") or download_info["info_cle"]["nonce"]
-        self.format = (
-            version_courante.get("format") or download_info["info_cle"]["format"]
-        )
+        try:
+            self.nonce: str = version_courante["nonce"]
+            self.format: str = version_courante["format"]
+        except KeyError:
+            key_info = download_info['key_info']
+            self.nonce: str = key_info['nonce']
+            self.format: str = key_info['format']
 
         self.path_destination = destination
 
@@ -245,10 +248,6 @@ class Downloader:
         self.__download_queue.append(download_item)
         self.__download_pret.set()
 
-        self.__logger.debug(
-            f"Download added: {download_item.nom}, queue size: {len(self.__download_queue)}"
-        )
-
         # Track active download
         with self.__active_downloads_lock:
             self.__active_downloads.append(download_item)
@@ -265,7 +264,6 @@ class Downloader:
 
         # Notify TransferHandler to update UI
         if self.__transfer_handler:
-            self.__logger.debug(f"Setting download dirty flag for: {download_item.nom}")
             self.__transfer_handler.set_download_dirty()
 
         return download_item
@@ -279,10 +277,6 @@ class Downloader:
         self.__download_queue.append(download_item)
         self.__download_pret.set()
 
-        self.__logger.debug(
-            f"Directory download added: {download_item.nom}, queue size: {len(self.__download_queue)}"
-        )
-
         # Track active download
         with self.__active_downloads_lock:
             self.__active_downloads.append(download_item)
@@ -295,7 +289,6 @@ class Downloader:
 
         # Notify TransferHandler to update UI
         if self.__transfer_handler:
-            self.__logger.debug(f"Setting download dirty flag for: {download_item.nom}")
             self.__transfer_handler.set_download_dirty()
 
         return download_item
