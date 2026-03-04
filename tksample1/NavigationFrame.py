@@ -259,7 +259,9 @@ class NavigationFrame(tk.Frame):
                 tn = "2"
             else:
                 tn = "1"
-            return tn + (metadata.get("nom") or item["tuuid"])
+            # Case-insensitive sorting by name, matching CLI ls behavior
+            name = metadata.get("nom") or item["tuuid"]
+            return tn + name.lower()
 
         fichiers_tries = sorted(self.__repertoire.fichiers, key=sort_nom)
 
