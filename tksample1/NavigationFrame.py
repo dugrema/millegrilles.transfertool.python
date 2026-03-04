@@ -118,6 +118,7 @@ class NavigationFrame(tk.Frame):
         )
         self.dirlist["columns"] = ("taille", "type", "date")
 
+        self.dirlist.heading("#0", text="Nom", anchor="w")
         self.dirlist.heading("taille", text="Taille")
         self.dirlist.heading("type", text="Type")
         self.dirlist.heading("date", text="Date")
@@ -276,6 +277,7 @@ class NavigationFrame(tk.Frame):
                 date_fichier = datetime.datetime.fromtimestamp(
                     fichier["derniere_modification"], tz=pytz.UTC
                 )
+                date_fichier_str = date_fichier.strftime("%Y-%m-%d %H:%M")
             else:
                 version_courante = fichier["version_courante"]
                 taille_fichier = self._format_size(version_courante["taille"])
@@ -283,12 +285,13 @@ class NavigationFrame(tk.Frame):
                 date_fichier = datetime.datetime.fromtimestamp(
                     metadata["dateFichier"], tz=pytz.UTC
                 )
+                date_fichier_str = date_fichier.strftime("%Y-%m-%d %H:%M")
             self.dirlist.insert(
                 "",
                 "end",
                 iid=tuuid,
                 text=nom_fichier,
-                values=(taille_fichier, type_fichier, date_fichier),
+                values=(taille_fichier, type_fichier, date_fichier_str),
             )
 
     def dirlist_rightclick_fichier(self, event):
