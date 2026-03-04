@@ -92,26 +92,6 @@ class NavigationFrame(tk.Frame):
         self.__btn_up.grid(row=0, column=0, sticky="w", padx=(5, 5))
         self.__breadcrumb_label.grid(row=0, column=1, sticky="ew", padx=(0, 5))
 
-        self.__frame_transfer_status = tk.Frame(master=self)
-        self.upload_status_var = tk.StringVar(
-            master=self.__frame_transfer_status, value="Upload inactif"
-        )
-        self.download_status_var = tk.StringVar(
-            master=self.__frame_transfer_status, value="Download inactif"
-        )
-        self.__upload_status_label = tk.Label(
-            master=self.__frame_transfer_status,
-            textvariable=self.upload_status_var,
-            justify="left",
-        )
-        self.__download_status_label = tk.Label(
-            master=self.__frame_transfer_status,
-            textvariable=self.download_status_var,
-            justify="left",
-        )
-        self.__upload_status_label.pack(fill=tk.X)
-        self.__download_status_label.pack(fill=tk.X)
-
         self.__dir_frame = ttk.Frame(master=self)
         self.dirlist = ttk.Treeview(
             master=self.__dir_frame, columns=("taille", "type", "date"), height=25
@@ -125,22 +105,21 @@ class NavigationFrame(tk.Frame):
 
         # Use dynamic widths for responsive layout
         self.dirlist.column("#0", width=400, minwidth=200)  # Changed from fixed 440
-        self.dirlist.column("taille", width=90, anchor="se")
+        self.dirlist.column("taille", width=50, anchor="se")
         self.dirlist.column("type", width=100)
-        self.dirlist.column("date", width=145)
+        self.dirlist.column("date", width=110)
 
         # Configure grid weights for NavigationFrame
         self.grid_rowconfigure(0, weight=0)  # Actions - fixed height
         self.grid_rowconfigure(1, weight=0)  # Breadcrumb - fixed height
-        self.grid_rowconfigure(2, weight=0)  # Transfer status - fixed height
-        self.grid_rowconfigure(3, weight=1)  # Directory frame - expand
+        self.grid_rowconfigure(2, weight=1)  # Directory frame - expand
         self.grid_columnconfigure(0, weight=1)  # Expand horizontally
 
         # Configure dir_frame weights
         self.__dir_frame.grid_rowconfigure(0, weight=1)
         self.__dir_frame.grid_columnconfigure(0, weight=1)
 
-        self.dirlist.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.dirlist.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=(0, 5))
 
         # Calling pack method w.r.to vertical
         # scrollbar
@@ -158,8 +137,7 @@ class NavigationFrame(tk.Frame):
         """Grid layout for this frame."""
         self.__frame_actions.grid(row=0, column=0, sticky="w")
         self.__frame_breadcrumb.grid(row=1, column=0, sticky="w", padx=(5, 0))
-        self.__frame_transfer_status.grid(row=2, column=0, sticky="w")
-        self.__dir_frame.grid(row=3, column=0, sticky="nsew", padx=5, pady=5)
+        self.__dir_frame.grid(row=2, column=0, sticky="nsew", padx=5, pady=5)
 
         super().grid(*args, **kwargs)
 
@@ -307,19 +285,3 @@ class NavigationFrame(tk.Frame):
             self.__navigation.changer_cuuid(tuuid)
         else:
             self.__navigation.ajouter_download(tuuid)
-
-    def set_download_status(self, status: str):
-        """Set download status label.
-
-        Args:
-            status: Status string to display
-        """
-        self.download_status_var.set(status)
-
-    def set_upload_status(self, status: str):
-        """Set upload status label.
-
-        Args:
-            status: Status string to display
-        """
-        self.upload_status_var.set(status)
