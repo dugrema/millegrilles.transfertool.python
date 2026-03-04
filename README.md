@@ -51,12 +51,14 @@ The application automatically detects GUI availability and falls back to CLI mod
 |---------|-------------|
 | `connect` | Connect with existing certificate or proceed with authentication |
 | `disconnect` | Disconnect from the MilleGrilles server |
+| `status` | Show current connection and configuration status |
 | `ls [path]` | List directory contents (current or specified path) |
 | `cd <path>` | Change directory (use `..` to go up one level) |
 | `pwd` | Print current working directory |
-| `get <remote> [local]` | Download file from server (optional local filename) |
+| `get <remote> [--inline]` | Download file from server (use `--inline` for single-pass download) |
 | `put <local> [remote]` | Upload file to server (optional remote filename) |
 | `mkdir <path>` | Create a new directory on the server |
+| `set download [--inline \| --twophase]` | Set download mode (`--inline`: faster, not resumable; `--twophase`: default, resumable) |
 | `exit` or `quit` | Exit the CLI |
 
 #### Local Commands
@@ -75,6 +77,44 @@ The application automatically detects GUI availability and falls back to CLI mod
 - `get` distinguishes between downloading a single file or a directory
 - `put` distinguishes between uploading a single file or a directory
 
+### Download Modes
+
+The CLI supports two download modes for encrypted files:
+
+**Two-Phase Mode (Default)**
+- Downloads encrypted file to a `.work` file, then decrypts it
+- Resumable if download is interrupted
+- Requires 2x disk I/O (download + decrypt)
+- Use when network reliability is a concern
+
+**Inline Mode (Single-Pass)**
+- Downloads and decrypts simultaneously in a single pass
+- Faster overall transfer time (decryption is negligible)
+- Requires 1x disk I/O (download/decrypt combined)
+- More memory efficient (one chunk at a time)
+- Not resumable if interrupted (trades resumability for efficiency)
+- Use when network is reliable and speed is priority
+
+#### Examples
+
+```bash
+# Download with two-phase mode (default, resumable)
+> get filename.txt
+
+# Download with inline mode (faster, not resumable)
+> get filename.txt --inline
+
+# Enable inline mode for all subsequent downloads
+> set download --inline
+> get anotherfile.txt
+
+# Return to two-phase mode
+> set download --twophase
+
+# Check current download mode
+> status
+```
+
 ### Examples
 
 ```bash
@@ -92,6 +132,13 @@ python3 -m tksample1 --cli --verbose
 
 # Use custom download directory
 python3 -m tksample1 --cli --downdir /home/user/downloads
+
+# CLI inline download examples (interactive mode)
+> get largefile.bin --inline      # Fast download, not resumable
+> get smallfile.txt                # Default two-phase, resumable
+> set download --inline            # Enable inline mode globally
+> get anotherfile.txt              # Uses inline mode
+> status                           # Shows current download mode
 ```
 
 ## Folder Structure

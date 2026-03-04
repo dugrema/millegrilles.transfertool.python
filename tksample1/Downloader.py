@@ -631,6 +631,9 @@ class Downloader:
 
             self.__logger.debug("Fichier %s dechiffre OK (inline)" % path_reception)
 
+            # Signal download completion
+            item.download_complete.set()
+
         except FileExistsError:
             self.__logger.warning("Fichier %s existe deja" % path_reception)
             item.download_complete.set()

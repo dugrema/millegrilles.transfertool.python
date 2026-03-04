@@ -47,6 +47,9 @@ class CLIHandler:
             self.__auth.download_path
         )  # Initialize with download directory
 
+        # Inline mode flag for download operations (default: False for two-phase)
+        self.__inline_mode = False
+
     def run(self):
         """Main CLI loop."""
         # Wait for connection to be established
@@ -167,12 +170,14 @@ class CLIHandler:
         print("  lpwd           - Print local working directory")
         print()
         print("Transfer commands:")
-        print("  get <file> - Download file from remote to local directory")
-        print("  put <file> - Upload file from local directory to remote")
+        print(
+            "  get [--inline] <file> - Download file from remote to local directory. --inline downloads and decrypts in 1 pass."
+        )
+        print("  put <file>            - Upload file from local directory to remote")
         print()
         print("Other commands:")
         print("  mkdir <name> - Create directory on remote")
-        print("  exit       - Exit CLI")
+        print("  exit         - Exit CLI")
         print()
         print("Type 'help' for more information")
         print()
@@ -266,6 +271,8 @@ class CLIHandler:
             self.cmd_connect(totp_code=totp_code)
         elif command == "status":
             self.cmd_status()
+        elif command == "set":
+            self.cmd_set(args)
         elif command == "cancel":
             self.cmd_cancel(args)
         elif command == "help":
@@ -475,18 +482,51 @@ class CLIHandler:
             self.__logger.error("Connection timeout after authentication")
 
     def cmd_status(self):
-        """Show connection status."""
+        """Show connection and configuration status."""
         connected = self.__auth.connect_event.is_set()
         if connected:
             print("Status: Connected")
             if self.__auth.nom_usager:
                 print(f"User: {self.__auth.nom_usager}")
+            print(f"Server: {self.__auth.url_fiche_serveur.hostname}")
+
+            # Show download mode configuration
+            print()
+            print("Configuration:")
+            print(f"  Download mode: {'Inline' if self.__inline_mode else 'Two-Phase'}")
         else:
             print("Status: Disconnected")
             if self.__auth.nom_usager:
-                print(f"User: {self.__auth.nom_usager} (use 'connect' to authenticate)")
+                print(f"User: {self.__auth.nom_usager}")
+            print(f"Server: {self.__auth.url_fiche_serveur.hostname}")
+
+    def cmd_set(self, args: List[str]):
+        """Set CLI configuration options.
+
+        Args:
+            args: List containing setting options
+        """
+        if not args:
+            print("Error: set requires arguments")
+            print("Usage: set download [--inline | --twophase]")
+            return
+
+        if args[0] == "download":
+            if "--inline" in args:
+                self.__inline_mode = True
+                print("Download mode: Inline (enabled)")
+                print("  Note: Inline mode is faster but not resumable if interrupted")
+            elif "--twophase" in args:
+                self.__inline_mode = False
+                print("Download mode: Two-Phase (default)")
+                print("  Note: Two-phase mode allows resumable downloads")
             else:
-                print("No credentials found. Use GUI mode to authenticate first.")
+                print("Usage: set download [--inline | --twophase]")
+                print("  --inline   - Enable inline download/decrypt")
+                print("  --twophase - Disable inline mode (default)")
+        else:
+            print(f"Error: Unknown setting '{args[0]}'")
+            print("Usage: set download [--inline | --twophase]")
 
     def _print_help(self):
         """Print help information."""
@@ -497,7 +537,7 @@ class CLIHandler:
         print("                      - TOTP_CODE: Optional 2FA code (6-10 digits)")
         print("                      - Example: connect 123456")
         print("  disconnect - Disconnect from server")
-        print("  status     - Show current connection status")
+        print("  status     - Show current connection and configuration status")
         print()
         print("Remote:")
         print("  ls [path]    - List remote directory contents")
@@ -510,12 +550,17 @@ class CLIHandler:
         print("  lpwd         - Print local working directory")
         print()
         print("Transfer:")
-        print("  get <file>   - Download file to local directory")
+        print("  get <file> [--inline] - Download file (use --inline for inline mode)")
         print("  put <path>   - Upload file from local directory")
         print("  cancel [file] - Cancel active transfer (empty cancels all)")
         print("    cancel --uploads    - Cancel all uploads")
         print("    cancel --downloads  - Cancel all downloads")
         print("  mkdir <name> - Create remote directory")
+        print("  set download [--inline | --twophase] - Set download mode")
+        print(
+            "    --inline    - Enable inline download/decrypt (faster, not resumable)"
+        )
+        print("    --twophase  - Disable inline mode (default, resumable)")
         print()
         print("Other:")
         print("  exit         - Exit CLI")
@@ -739,14 +784,28 @@ class CLIHandler:
         """Download file from current directory.
 
         Args:
-            args: List containing the filename to download
+            args: List containing the filename to download, optionally with --inline flag
         """
         if not args:
             print("Error: get requires a filename argument")
-            print("Usage: get <filename>")
+            print("Usage: get <filename> [--inline]")
             return
 
-        filename = args[0]
+        # Parse arguments: extract inline flag and filename
+        inline = False
+        if "--inline" in args:
+            inline = True
+            # Filename is the argument after --inline
+            inline_idx = args.index("--inline")
+            filename = args[inline_idx + 1] if inline_idx + 1 < len(args) else None
+        else:
+            filename = args[0]
+
+        if not filename:
+            print("Error: get requires a filename argument")
+            print("Usage: get <filename> [--inline]")
+            return
+
         download_item = None
         download_progress = None
 
@@ -775,7 +834,8 @@ class CLIHandler:
 
             # For directories, download without progress bar (simpler)
             if type_node in ["Collection", "Repertoire"]:
-                print(f"Downloading directory '{filename}'...")
+                mode_indicator = "[INLINE]" if inline else "[2PHASE]"
+                print(f"Downloading directory '{filename}' {mode_indicator}...")
                 download_item = self.__transfer_handler.ajouter_download_repertoire(
                     target_item, self.__local_dir
                 )
@@ -792,12 +852,14 @@ class CLIHandler:
                     print(f"\nDownload cancelled: '{filename}'")
                     return
 
-                print(f"Download complete: '{filename}'")
+                mode_indicator = "[INLINE]" if inline else "[2PHASE]"
+                print(f"Download complete: '{filename}' {mode_indicator}")
                 return
 
             # For files, use progress bar
             elif type_node == "Fichier":
-                print(f"Downloading file '{filename}'...")
+                mode_indicator = "[INLINE]" if inline else "[2PHASE]"
+                print(f"Downloading file '{filename}' {mode_indicator}...")
 
                 # Import only when needed (lazy import)
                 from tksample1.ProgressBar import DownloadProgressBar
@@ -820,7 +882,7 @@ class CLIHandler:
 
                 # Download the file
                 download_item = self.__transfer_handler.ajouter_download_fichier(
-                    target_item, self.__local_dir
+                    target_item, self.__local_dir, inline=inline
                 )
 
                 # Wait for download to complete
@@ -842,7 +904,9 @@ class CLIHandler:
                     print(f"\nDownload cancelled: '{filename}'")
                     return
 
-                print(f"Download complete: '{filename}'")
+                mode_indicator = "[INLINE]" if inline else "[2PHASE]"
+                print(f"Download complete: '{filename}' {mode_indicator}")
+                return
             else:
                 print(f"Error: Unsupported type '{type_node}'")
                 return
