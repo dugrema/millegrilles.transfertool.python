@@ -532,6 +532,11 @@ class Authentification:
                     break
             filehost_idx += 1
 
+        # Notify GUI to populate filehost dropdown now that filehosts are available
+        if self.auth_frame is not None:
+            if hasattr(self.auth_frame, "populate_filehost_dropdown"):
+                self.auth_frame.populate_filehost_dropdown()  # type: ignore
+
         if self.__instance_id:
             # Check if there is an automatic selection of the filehost for this instance_id
             filehost_select_response = self.request(
