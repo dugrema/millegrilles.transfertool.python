@@ -90,6 +90,7 @@ class Authentification:
         self.__lock_emit = Lock()
         self.connect_event = Event()
 
+        self.__instance_id: Optional[str] = None
         self.__filehosts: Optional[list[dict]] = None
         self.__filehost_idx = 0
 
@@ -126,6 +127,10 @@ class Authentification:
     @property
     def tmp_path(self):
         return self.__path_tmp
+
+    @property
+    def instance_id(self):
+        return self.__instance_id
 
     @property
     def filehost_url(self):
@@ -465,6 +470,7 @@ class Authentification:
                     except Exception:
                         self.__logger.exception("Erreur reconnexion")
 
+        # Get the default system filehost
         filehost_response = self.request({}, "CoreTopologie", "getFilehosts")  # type: ignore
         filehost_content = json.loads(filehost_response["contenu"])  # type: ignore
         if filehost_content["ok"] is not True:  # type: ignore
@@ -477,7 +483,27 @@ class Authentification:
             if f.get("url_external") is not None and f["deleted"] is False
         ]
         self.__filehosts = filehosts
-        self.__logger.info(f"Filehost url: {self.filehost_url}")
+
+        # Try to pick a local filehost when available
+        hostname = url.hostname
+        filehost_idx = 0
+        for filehost in filehosts:
+            url_external = filehost.get("url_external")
+            if url_external is not None:
+                url_filehost = parse.urlparse(url_external)
+                if url_filehost.hostname == hostname:
+                    self.__filehost_idx = filehost_idx
+                    break
+            filehost_idx += 1
+
+        if self.__instance_id:
+            # Check if there is an automatic selection of the filehost for this instance_id
+            filehost_select_response = self.request({"instance_id": self.__instance_id}, "CoreTopologie", "getFilehostForInstance")  # type: ignore
+            response_content = json.loads(filehost_select_response["contenu"])  # type: ignore
+            if response_content.get("ok") is True:
+                self.__logger.info(f"Switch to filehost_id {filehost_response}")
+
+        print(f"Filehost url: {self.filehost_url}")
 
     def socketio_requete_certificat(self, url: parse.ParseResult):
         connexion_socketio = f"https://{url.hostname}"
@@ -676,6 +702,9 @@ class Authentification:
                 "Erreur upgrade socket.io : mauvais role/securite cote serveur. Roles: %s, securite: %s"
                 % (enveloppe.get_roles, enveloppe.get_exchanges)
             )
+
+        # Keep instance_id to request the associated filehost
+        self.__instance_id = enveloppe.subject_common_name
 
         contenu = json.loads(reponse_upgrade["contenu"])
         if contenu.get("ok") is not True:
