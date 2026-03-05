@@ -152,6 +152,42 @@ class Authentification:
         """Get the confirmation code for CLI authentication."""
         return self.__confirmation_code
 
+    def get_filehosts(self) -> Optional[list[dict]]:
+        """Return the list of available filehosts.
+
+        Returns:
+            List of filehost dictionaries if connected, None otherwise.
+        """
+        return self.__filehosts
+
+    def get_current_filehost_idx(self) -> int:
+        """Return the index of currently selected filehost."""
+        return self.__filehost_idx
+
+    def set_filehost_idx(self, idx: int) -> bool:
+        """Set the filehost index to the specified value.
+
+        Args:
+            idx: Index of filehost to select
+
+        Returns:
+            True if successful, False if index out of range
+        """
+        if self.__filehosts and 0 <= idx < len(self.__filehosts):
+            self.__filehost_idx = idx
+            self.__logger.info(
+                f"Filehost changed to index {idx}: "
+                f"{self.__filehosts[idx].get('url_external', 'Unknown')}"
+            )
+            return True
+        return False
+
+    def get_current_filehost(self) -> Optional[dict]:
+        """Return the currently selected filehost object."""
+        if self.__filehosts and self.__filehost_idx < len(self.__filehosts):
+            return self.__filehosts[self.__filehost_idx]
+        return None
+
     def init_config(self):
         """Initialize configuration from saved settings.
 
@@ -498,7 +534,11 @@ class Authentification:
 
         if self.__instance_id:
             # Check if there is an automatic selection of the filehost for this instance_id
-            filehost_select_response = self.request({"instance_id": self.__instance_id}, "CoreTopologie", "getFilehostForInstance")  # type: ignore
+            filehost_select_response = self.request(
+                {"instance_id": self.__instance_id},
+                "CoreTopologie",
+                "getFilehostForInstance",
+            )  # type: ignore
             response_content = json.loads(filehost_select_response["contenu"])  # type: ignore
             if response_content.get("ok") is True:
                 self.__logger.info(f"Switch to filehost_id {filehost_response}")

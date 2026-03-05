@@ -159,6 +159,10 @@ class CLIHandler:
         print("Connection info:")
         print("  status     - Show current connection status")
         print()
+        print("Filehost commands:")
+        print("  filehosts         - List available filehosts")
+        print("  set filehost <N>  - Select filehost by index")
+        print()
         print("Remote commands:")
         print("  ls [path]  - List remote directory contents")
         print("  cd <path>  - Change remote directory (use '..' for parent)")
@@ -271,6 +275,8 @@ class CLIHandler:
             self.cmd_connect(totp_code=totp_code)
         elif command == "status":
             self.cmd_status()
+        elif command == "filehosts":
+            self.cmd_filehosts(args)
         elif command == "set":
             self.cmd_set(args)
         elif command == "cancel":
@@ -490,6 +496,12 @@ class CLIHandler:
                 print(f"User: {self.__auth.nom_usager}")
             print(f"Server: {self.__auth.url_fiche_serveur.hostname}")
 
+            # Show filehost information
+            fh = self.__auth.get_current_filehost()
+            if fh:
+                print(f"Filehost: {fh.get('hostname', 'Unknown')}")
+                print(f"Filehost URL: {fh.get('url_external', 'Unknown')}")
+
             # Show download mode configuration
             print()
             print("Configuration:")
@@ -500,6 +512,25 @@ class CLIHandler:
                 print(f"User: {self.__auth.nom_usager}")
             print(f"Server: {self.__auth.url_fiche_serveur.hostname}")
 
+    def cmd_filehosts(self, args: List[str]):
+        """List available filehosts."""
+        filehosts = self.__auth.get_filehosts()
+        if not filehosts:
+            print("No filehosts available. Connect first.")
+            return
+
+        current_idx = self.__auth.get_current_filehost_idx()
+
+        print("Available filehosts:")
+        for idx, fh in enumerate(filehosts):
+            url = fh.get("url_external", "Unknown")
+            hostname = fh.get("hostname", "Unknown")
+            marker = " (current)" if idx == current_idx else ""
+            print(f"  [{idx}] {hostname} - {url}{marker}")
+
+        print(f"\nTotal: {len(filehosts)} filehost(s)")
+        print("Use 'set filehost <index>' to change selection")
+
     def cmd_set(self, args: List[str]):
         """Set CLI configuration options.
 
@@ -509,6 +540,7 @@ class CLIHandler:
         if not args:
             print("Error: set requires arguments")
             print("Usage: set download [--inline | --twophase]")
+            print("       set filehost <index>")
             return
 
         if args[0] == "download":
@@ -524,9 +556,31 @@ class CLIHandler:
                 print("Usage: set download [--inline | --twophase]")
                 print("  --inline   - Enable inline download/decrypt")
                 print("  --twophase - Disable inline mode (default)")
+        elif args[0] == "filehost":
+            if len(args) < 2:
+                print("Error: set filehost requires an index")
+                print("Usage: set filehost <index>")
+                return
+            try:
+                idx = int(args[1])
+                filehosts = self.__auth.get_filehosts()
+                if filehosts and 0 <= idx < len(filehosts):
+                    success = self.__auth.set_filehost_idx(idx)
+                    if success:
+                        fh = self.__auth.get_current_filehost()
+                        print(
+                            f"Filehost changed to: {fh.get('hostname', 'Unknown')} - {fh.get('url_external', 'Unknown')}"
+                        )
+                    else:
+                        print("Error: Invalid filehost index")
+                else:
+                    print("Error: Invalid filehost index")
+            except ValueError:
+                print("Error: Index must be a number")
         else:
             print(f"Error: Unknown setting '{args[0]}'")
             print("Usage: set download [--inline | --twophase]")
+            print("       set filehost <index>")
 
     def _print_help(self):
         """Print help information."""
@@ -538,6 +592,10 @@ class CLIHandler:
         print("                      - Example: connect 123456")
         print("  disconnect - Disconnect from server")
         print("  status     - Show current connection and configuration status")
+        print()
+        print("Filehost:")
+        print("  filehosts            - List available filehosts")
+        print("  set filehost <index> - Select filehost by index")
         print()
         print("Remote:")
         print("  ls [path]    - List remote directory contents")
