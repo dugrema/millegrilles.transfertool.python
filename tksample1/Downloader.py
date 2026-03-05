@@ -188,7 +188,7 @@ class Downloader:
                         100.0,
                         (
                             self.__download_en_cours.taille_recue
-                            / self.__download_en_cours.taille_chiffree
+                            / max(1, self.__download_en_cours.taille_chiffree)
                         )
                         * 100,
                     )
@@ -483,45 +483,45 @@ class Downloader:
                 if item.is_cancelled():
                     raise CancelledDownloadException()
 
-            type_node = t["type_node"]
-            if type_node == "Fichier":
-                try:
-                    download_fichier = DownloadFichier(t, path_destination)
-                except KeyError:
-                    self.__logger.warning("Cle fichier manquante, skip : %s" % t)
-                else:
+                type_node = t["type_node"]
+                if type_node == "Fichier":
                     try:
-                        # Create individual progress bar for this file
-                        progress_bar = DownloadProgressBar(download_fichier.nom)
+                        download_fichier = DownloadFichier(t, path_destination)
+                    except KeyError:
+                        self.__logger.warning("Cle fichier manquante, skip : %s" % t)
+                    else:
+                        try:
+                            # Create individual progress bar for this file
+                            progress_bar = DownloadProgressBar(download_fichier.nom)
 
-                        # Save current progress wrapper and set this file's wrapper
-                        old_progress_wrapper = self.__progress_wrapper
-                        self.__progress_wrapper = progress_bar.wrapper
+                            # Save current progress wrapper and set this file's wrapper
+                            old_progress_wrapper = self.__progress_wrapper
+                            self.__progress_wrapper = progress_bar.wrapper
 
-                        # Get encrypted size from file info
-                        encrypted_size = t.get("version_courante", {}).get(
-                            "taille", None
-                        )
+                            # Get encrypted size from file info
+                            encrypted_size = t.get("version_courante", {}).get(
+                                "taille", None
+                            )
 
-                        # Start download phase
-                        progress_bar.start_download(encrypted_size)
+                            # Start download phase
+                            progress_bar.start_download(encrypted_size)
 
-                        # Download the file
-                        self.download_fichier(download_fichier)
+                            # Download the file
+                            self.download_fichier(download_fichier)
 
-                        # Transition to decrypt is handled by download_fichier
-                        # Close progress bar after decryption completes
-                        progress_bar.close()
+                            # Transition to decrypt is handled by download_fichier
+                            # Close progress bar after decryption completes
+                            progress_bar.close()
 
-                        # Restore old progress wrapper
-                        self.__progress_wrapper = old_progress_wrapper
+                            # Restore old progress wrapper
+                            self.__progress_wrapper = old_progress_wrapper
 
-                    except FileExistsError:
-                        pass  # OK
-            else:
-                # Download recursif des sous-repertoires
-                download_repertoire = DownloadRepertoire(t, path_destination)
-                self.download_repertoire(download_repertoire)
+                        except FileExistsError:
+                            pass  # OK
+                else:
+                    # Download recursif des sous-repertoires
+                    download_repertoire = DownloadRepertoire(t, path_destination)
+                    self.download_repertoire(download_repertoire)
 
             # Mark directory download as complete
             item.download_complete.set()
