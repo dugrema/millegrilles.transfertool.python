@@ -8,6 +8,7 @@ import logging
 import tkinter as tk
 from tkinter import messagebox, ttk
 from typing import Optional
+from urllib.parse import urlparse
 
 
 class ConnectionFrame(tk.Frame):
@@ -202,11 +203,11 @@ class ConnectionFrame(tk.Frame):
             options = []
             for idx, fh in enumerate(filehosts):
                 url = fh.get("url_external", "Unknown")
-                hostname = fh.get("hostname", "Unknown")
+                hostname = urlparse(url).hostname or "Unknown"
                 marker = (
                     " (auto)" if idx == self.auth.get_current_filehost_idx() else ""
                 )
-                options.append(f"{hostname} - {url}{marker}")
+                options.append(f"{hostname}{marker}")
 
             self.filehost_combo["values"] = options
             self.filehost_combo.current(self.auth.get_current_filehost_idx())
@@ -225,12 +226,10 @@ class ConnectionFrame(tk.Frame):
             success = self.auth.set_filehost_idx(new_idx)
             if success:
                 selected_fh = self.auth.get_current_filehost()
-                self.status_var.set(
-                    f"Connecté - Filehost: {selected_fh.get('hostname', 'Unknown')}"
-                )
-                self.__logger.info(
-                    f"Filehost changed to: {selected_fh.get('hostname', 'Unknown')}"
-                )
+                url = selected_fh.get("url_external", "Unknown")
+                hostname = urlparse(url).hostname or "Unknown"
+                self.status_var.set(f"Connecté - Filehost: {hostname}")
+                self.__logger.info(f"Filehost changed to: {hostname}")
             else:
                 # Restore previous selection on error
                 prev_idx = self.auth.get_current_filehost_idx()
