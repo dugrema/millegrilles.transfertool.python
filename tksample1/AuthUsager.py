@@ -124,6 +124,15 @@ class Authentification:
     def download_path(self):
         return self.__path_download
 
+    @download_path.setter
+    def download_path(self, value: pathlib.Path):
+        """Set the download path.
+
+        Args:
+            value: pathlib.Path representing the new download directory
+        """
+        self.__path_download = value
+
     @property
     def tmp_path(self):
         return self.__path_tmp
