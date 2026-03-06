@@ -14,10 +14,14 @@ from tkinter import ttk
 from typing import Optional
 
 import pytz
+from tksample1.AuthUsager import Authentification
 
 
 class NavigationFrame(tk.Frame):
     """GUI frame for file system navigation controls."""
+
+    # Add connexion attribute for accessing download_path
+    connexion: Authentification
 
     @staticmethod
     def _format_size(size: int) -> str:
@@ -29,21 +33,41 @@ class NavigationFrame(tk.Frame):
             size_float /= 1024
         return f"{size_float:.1f}TB"
 
-    def __init__(self, navigation, *args, **kwargs):
+    def __init__(self, navigation, connexion, *args, **kwargs):
         """Initialize the navigation frame.
 
         Args:
             navigation: Navigation instance for handling navigation logic
+            connexion: Authentification instance for download_path access
             *args: Arguments passed to tk.Frame
             **kwargs: Keyword arguments passed to tk.Frame
         """
         self.__logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
         super().__init__(*args, **kwargs)
         self.__navigation = navigation
+        self.__connexion = connexion
         self.__repertoire = None
 
         # Add inline mode toggle
         self.__inline_var = tk.BooleanVar(value=False)
+
+        # Add download directory header
+        self.__frame_download_dir = tk.Frame(master=self)
+        self.__download_dir_var = tk.StringVar(
+            value=str(self.__connexion.download_path)
+        )
+        self.__download_dir_label = tk.Label(
+            master=self.__frame_download_dir,
+            textvariable=self.__download_dir_var,
+            anchor="w",
+        )
+        self.__btn_select_dir = tk.Button(
+            master=self.__frame_download_dir,
+            text="▼ Select",
+            command=self.btn_select_download_dir,
+        )
+        self.__download_dir_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.__btn_select_dir.pack(side=tk.LEFT)
 
         self.__frame_actions = tk.Frame(master=self)
         self.__btn_creer_collection = tk.Button(
@@ -122,9 +146,10 @@ class NavigationFrame(tk.Frame):
         self.dirlist.column("date", width=110)
 
         # Configure grid weights for NavigationFrame
-        self.grid_rowconfigure(0, weight=0)  # Actions - fixed height
-        self.grid_rowconfigure(1, weight=0)  # Breadcrumb - fixed height
-        self.grid_rowconfigure(2, weight=1)  # Directory frame - expand
+        self.grid_rowconfigure(0, weight=0)  # Download dir header - fixed height
+        self.grid_rowconfigure(1, weight=0)  # Actions - fixed height
+        self.grid_rowconfigure(2, weight=0)  # Breadcrumb - fixed height
+        self.grid_rowconfigure(3, weight=1)  # Directory frame - expand
         self.grid_columnconfigure(0, weight=1)  # Expand horizontally
 
         # Configure dir_frame weights
@@ -147,9 +172,10 @@ class NavigationFrame(tk.Frame):
 
     def grid(self, *args, **kwargs):
         """Grid layout for this frame."""
-        self.__frame_actions.grid(row=0, column=0, sticky="w")
-        self.__frame_breadcrumb.grid(row=1, column=0, sticky="w", padx=(5, 0))
-        self.__dir_frame.grid(row=2, column=0, sticky="nsew", padx=5, pady=5)
+        self.__frame_download_dir.grid(row=0, column=0, sticky="w", padx=(5, 0))
+        self.__frame_actions.grid(row=1, column=0, sticky="w", padx=(5, 0))
+        self.__frame_breadcrumb.grid(row=2, column=0, sticky="w", padx=(5, 0))
+        self.__dir_frame.grid(row=3, column=0, sticky="nsew", padx=5, pady=5)
 
         super().grid(*args, **kwargs)
 
@@ -157,6 +183,22 @@ class NavigationFrame(tk.Frame):
         """Bind mouse events to treeview."""
         self.dirlist.bind("<Button-3>", self.dirlist_rightclick_fichier)
         self.dirlist.bind("<Double-Button-1>", self.dirlist_doubleclick_fichier)
+
+    def btn_select_download_dir(self):
+        """Handle download directory selection."""
+        import tkinter.filedialog
+
+        new_dir = tkinter.filedialog.askdirectory(
+            title="Select Download Directory",
+            initialdir=str(self.__connexion.download_path),
+        )
+        if new_dir:
+            new_path = pathlib.Path(new_dir)
+            # Update connexion download path
+            self.__connexion.download_path = new_path
+            self.__download_dir_var.set(str(new_path))
+            # Save configuration to persist the change
+            self.__connexion.sauvegarder_configuration()
 
     def btn_up_handler(self):
         """Handle up button click."""

@@ -66,7 +66,7 @@ class Window:
 
         # Add Navigation tab
         self.__frame_navigation = NavigationFrame(
-            navigation, master=self.__frame_notebook
+            navigation, connexion=auth, master=self.__frame_notebook
         )
         self.__frame_notebook.add(self.__frame_navigation, text="Navigation")
 
@@ -134,6 +134,7 @@ class App:
         self.auth = Authentification(
             self.__stop_event, downdir=self.config.downdir, tmpdir=self.config.tmpdir
         )
+
         self.transfer_handler = TransferHandler(self.__stop_event, self.auth)
         self.navigation = Navigation(
             self.__stop_event, self.auth, self.transfer_handler
@@ -156,6 +157,12 @@ class App:
         self.__logger.info("Debut mainloop")
         Thread(name="Stop thread", target=self.stop_thread).start()
         self.auth.init_config()
+
+        # Update NavigationFrame label with loaded download_path if in GUI mode
+        if not self.cli_mode and hasattr(self.window, "_Window__frame_navigation"):
+            self.window._Window__frame_navigation._NavigationFrame__download_dir_var.set(
+                str(self.auth.download_path)
+            )
 
         if self.cli_mode:
             self._exec_cli_mode()

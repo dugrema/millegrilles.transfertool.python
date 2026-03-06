@@ -233,7 +233,7 @@ class Authentification:
         self.url_fiche_serveur = parse.urlparse(url_fiche_serveur)
 
         try:
-            self.__path_download = config["download_path"]
+            self.__path_download = pathlib.Path(config["download_path"])
         except KeyError:
             pass
 
@@ -243,6 +243,7 @@ class Authentification:
         config = {
             "nom_usager": self.nom_usager,
             "url_fiche_serveur": self.url_fiche_serveur.geturl(),  # type: ignore
+            "download_path": str(self.__path_download),
         }
         with open(self.__path_config, "wt") as fichier:
             json.dump(config, fichier)
