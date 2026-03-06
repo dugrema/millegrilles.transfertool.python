@@ -631,6 +631,10 @@ class Downloader:
 
             self.__logger.debug("Fichier %s dechiffre OK (inline)" % path_reception)
 
+            # Set final progress to 100% for inline mode
+            if self.__progress_manager:
+                self.__progress_manager.set_download_transfer_final(item.nom)
+
             # Signal download completion
             item.download_complete.set()
 

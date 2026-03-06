@@ -325,6 +325,43 @@ class ProgressManager:
         if self.__upload_transfer_callback is not None:
             self._invoke_callback(self.__upload_transfer_callback, filename, 100.0)
 
+    # Final progress methods for inline mode (always reach 100%)
+    def set_download_transfer_final(self, filename: str):
+        """Set download transfer progress to final 100% when download completes (inline mode).
+
+        Args:
+            filename: Name of the file being downloaded
+        """
+        if self.__download_transfer_callback is not None:
+            self._invoke_callback(self.__download_transfer_callback, filename, 100.0)
+
+    def set_download_decrypt_final(self, filename: str):
+        """Set download decryption progress to final 100% when decryption completes (inline mode).
+
+        Args:
+            filename: Name of the file being decrypted
+        """
+        if self.__download_decrypt_callback is not None:
+            self._invoke_callback(self.__download_decrypt_callback, filename, 100.0)
+
+    def set_upload_encrypt_final(self, filename: str):
+        """Set upload encryption progress to final 100% when encryption completes.
+
+        Args:
+            filename: Name of the file being encrypted
+        """
+        if self.__upload_encrypt_callback is not None:
+            self._invoke_callback(self.__upload_encrypt_callback, filename, 100.0)
+
+    def set_upload_transfer_final(self, filename: str):
+        """Set upload transfer progress to final 100% when upload completes.
+
+        Args:
+            filename: Name of the file being uploaded
+        """
+        if self.__upload_transfer_callback is not None:
+            self._invoke_callback(self.__upload_transfer_callback, filename, 100.0)
+
     def _should_update(self, update_type: str) -> bool:
         """Check if progress update should be invoked based on throttling.
 

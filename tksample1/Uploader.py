@@ -771,7 +771,7 @@ class Uploader:
 
             # Set upload encrypt progress to 100% before starting transfer
             if self.__progress_manager:
-                self.__progress_manager.set_upload_encrypt_complete(upload.path.name)
+                self.__progress_manager.set_upload_encrypt_final(upload.path.name)
 
             # Reset upload transfer progress bar before starting new upload
             if self.__progress_manager:
@@ -805,7 +805,7 @@ class Uploader:
 
             # Set upload transfer progress to 100% when upload is complete
             if self.__progress_manager:
-                self.__progress_manager.set_upload_transfer_complete(upload.path.name)
+                self.__progress_manager.set_upload_transfer_final(upload.path.name)
 
         fuuid_rechiffre = cipher.hachage
         # Clean up temporary file
