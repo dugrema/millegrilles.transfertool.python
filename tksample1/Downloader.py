@@ -557,6 +557,11 @@ class Downloader:
         if item.is_cancelled():
             raise CancelledDownloadException()
 
+        # Reset color state before starting new download
+        if self.__progress_manager:
+            self.__progress_manager.reset_download_transfer_complete(item.nom)
+            self.__progress_manager.reset_download_decrypt_complete(item.nom)
+
         if item.format != "mgs4":
             raise Exception("Format de chiffrage non supporte")
 
@@ -655,6 +660,11 @@ class Downloader:
 
         if item.is_cancelled():
             raise CancelledDownloadException()
+
+        # Reset color state before starting new download
+        if self.__progress_manager:
+            self.__progress_manager.reset_download_transfer_complete(item.nom)
+            self.__progress_manager.reset_download_decrypt_complete(item.nom)
 
         if item.format != "mgs4":
             raise Exception("Format de chiffrage non supporte")

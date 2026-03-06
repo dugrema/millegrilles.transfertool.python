@@ -137,9 +137,20 @@ class TransferFrame(tk.Frame):
         )
         self.__download_decrypt_pct_label.grid(row=1, column=0, sticky="e", padx=5)
 
+        # Cancel downloads button
+        self.__cancel_download_btn = ttk.Button(
+            download_frame,
+            text="Cancel Downloads",
+            command=self.cancel_all_downloads,
+            state="disabled",
+        )
+        self.__cancel_download_btn.grid(
+            row=2, column=0, sticky="ew", padx=5, pady=(5, 0)
+        )
+
         # Download queue list
         self.__download_queue_frame = ttk.Frame(download_frame)
-        self.__download_queue_frame.grid(row=2, column=0, sticky="nsew", pady=5)
+        self.__download_queue_frame.grid(row=3, column=0, sticky="nsew", pady=5)
 
         # === Upload Section ===
         upload_frame = ttk.LabelFrame(self, text="Uploads", padding=5)
@@ -208,9 +219,18 @@ class TransferFrame(tk.Frame):
         )
         self.__upload_transfer_pct_label.grid(row=1, column=0, sticky="e", padx=5)
 
+        # Cancel uploads button
+        self.__cancel_upload_btn = ttk.Button(
+            upload_frame,
+            text="Cancel Uploads",
+            command=self.cancel_all_uploads,
+            state="disabled",
+        )
+        self.__cancel_upload_btn.grid(row=2, column=0, sticky="ew", padx=5, pady=(5, 0))
+
         # Upload queue list
         self.__upload_queue_frame = ttk.Frame(upload_frame)
-        self.__upload_queue_frame.grid(row=2, column=0, sticky="nsew", pady=5)
+        self.__upload_queue_frame.grid(row=3, column=0, sticky="nsew", pady=5)
 
     def _register_progress_manager_callbacks(self):
         """Register callback functions with ProgressManager."""
@@ -336,6 +356,12 @@ class TransferFrame(tk.Frame):
             )
             label.pack(anchor="w", pady=1)
 
+        # Enable/disable cancel button based on active downloads
+        if current or queue:
+            self.__cancel_download_btn.configure(state="normal")
+        else:
+            self.__cancel_download_btn.configure(state="disabled")
+
     def _update_upload_queue(self, current: Optional[object], queue: list):
         """Update the upload queue display.
 
@@ -365,6 +391,12 @@ class TransferFrame(tk.Frame):
                 font=("Helvetica", 9),
             )
             label.pack(anchor="w", pady=1)
+
+        # Enable/disable cancel button based on active uploads
+        if current or queue:
+            self.__cancel_upload_btn.configure(state="normal")
+        else:
+            self.__cancel_upload_btn.configure(state="disabled")
 
     # === Cancel Methods ===
 

@@ -737,6 +737,12 @@ class Uploader:
         cipher = CipherMgs4(cle_ca)
 
         hacheur = Hacheur(hashing_code="blake2b-512", encoding="base58btc")
+
+        # Reset color state before starting new upload
+        if self.__progress_manager:
+            self.__progress_manager.reset_upload_encrypt_complete(upload.path.name)
+            self.__progress_manager.reset_upload_transfer_complete(upload.path.name)
+
         with tempfile.NamedTemporaryFile(dir=self.__tmp_path, delete=False) as tmpfile:
             with open(upload.path, "rb") as fichier:
                 while cipher.hachage is None:
