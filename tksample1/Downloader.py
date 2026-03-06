@@ -727,9 +727,9 @@ class Downloader:
             path_reception_work.unlink()
             raise CancelledDownloadException()
 
-        # Set download transfer progress to 100% before starting decryption
+        # Set download transfer progress to 100% and mark complete for Feature 1 and 2
         if self.__progress_manager:
-            self.__progress_manager.set_download_transfer_complete(
+            self.__progress_manager.set_download_transfer_final(
                 getattr(item, "nom", "unknown")
             )
 
@@ -831,10 +831,10 @@ def dechiffrer_in_place(
             if progress_wrapper:
                 progress_wrapper.update_encrypt(len(chunk_dechiffre))
 
-            # Set download decrypt progress to 100% when decryption is complete
+            # Set download decrypt progress to 100% and mark complete for Feature 1 and 2
             if progress_manager:
                 filename = getattr(item, "nom", "unknown")
-                progress_manager.set_download_decrypt_complete(filename)
+                progress_manager.set_download_decrypt_final(filename)
 
         # Tronquer fichier a la position d'ecriture courante
         fichier.truncate()

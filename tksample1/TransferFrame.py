@@ -1,222 +1,216 @@
-"""GUI Frame for File Transfers.
+"""TransferFrame.py - GUI frame for file transfer operations.
 
-This module contains the TransferFrame class for the tkinter GUI.
-Core transfer logic is in FileTransfer.py (no tkinter dependency).
+This module provides the Transfer tab UI with progress bars for:
+- Download transfer (server to local)
+- Download decryption (encrypted to decrypted)
+- Upload encryption (local to encrypted)
+- Upload transfer (encrypted to server)
+
+Feature 2: Progress bars turn green upon completion.
 """
 
 import logging
-
-# Import tkinter at module level for GUI frames (they are only used in GUI mode)
 import tkinter as tk
 from tkinter import ttk
+from typing import Optional
 
-from tksample1.NavigationFrame import NavigationFrame
+# Progress bar color constants
+COLOR_IN_PROGRESS = "#3B82F6"  # Blue - active transfer
+COLOR_COMPLETED = "#10B981"  # Green - completed
+COLOR_ERROR = "#EF4444"  # Red - error
+COLOR_DISABLED = "#9CA3AF"  # Gray - empty/disabled
 
 
 class TransferFrame(tk.Frame):
-    """GUI frame for displaying upload and download transfer status."""
+    """GUI frame for file transfer operations with progress tracking.
+
+    Provides UI for monitoring download and upload progress with
+    color-coded progress bars that turn green on completion.
+    """
 
     def __init__(self, transfer_handler, *args, **kwargs):
         """Initialize the transfer frame.
 
         Args:
-            transfer_handler: TransferHandler instance for managing transfers
+            transfer_handler: TransferHandler instance for backend operations
             *args: Arguments passed to tk.Frame
             **kwargs: Keyword arguments passed to tk.Frame
         """
+        super().__init__(*args, **kwargs)
+
         self.__logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
         self.__transfer_handler = transfer_handler
+
+        # Build the UI
+        self._create_ui()
 
         # Register callbacks with ProgressManager
         self._register_progress_manager_callbacks()
 
-        # Call super().__init__() first before creating child widgets
-        super().__init__(*args, **kwargs)
+        # Set up queue display
+        self._update_download_queue(None, [])
+        self._update_upload_queue(None, [])
 
-        # Configure grid weights for TransferFrame
-        self.grid_rowconfigure(0, weight=1)
+    def _create_ui(self):
+        """Create the transfer UI components."""
+        # Configure grid weights for responsive layout
+        self.grid_rowconfigure(0, weight=0)  # Title
+        self.grid_rowconfigure(1, weight=1)  # Download section
+        self.grid_rowconfigure(2, weight=1)  # Upload section
+
         self.grid_columnconfigure(0, weight=1)
 
-        # Create Transferts frame directly (no notebook, single tab view)
-        self.__create_transferts_tab()
-
-    def _format_size(self, size: int) -> str:
-        """Format size in human-readable format."""
-        return NavigationFrame._format_size(size)
-
-    def __create_transferts_tab(self):
-        """Create the Transferts tab with progress bars and pending queues."""
-        self.__frame_transferts = tk.Frame(self)
-
-        # Upload Section
-        self.__frame_upload = tk.LabelFrame(self.__frame_transferts, text="Uploads")
-        self.__frame_upload.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
-
-        # Upload progress bars (2-phase: Encrypting + Uploading)
-        self.__upload_encrypt_var = tk.DoubleVar(value=0.0)
-        self.__upload_encrypt_label = tk.StringVar(value="")
-        self.__upload_encrypt_pct_var = tk.StringVar(value="0%")
-        self.__encrypt_progress = ttk.Progressbar(
-            self.__frame_upload,
-            variable=self.__upload_encrypt_var,
-            orient="horizontal",
-            length=400,
+        # Section title
+        title_label = ttk.Label(
+            self, text="File Transfers", font=("Helvetica", 14, "bold")
         )
-        self.__encrypt_progress.grid(row=0, column=0, sticky="ew", pady=2)
-        self.__encrypt_label = tk.Label(
-            self.__frame_upload, textvariable=self.__upload_encrypt_label
-        )
-        self.__encrypt_label.grid(row=1, column=0, sticky="w", padx=5, pady=(0, 5))
-        self.__encrypt_pct_label = tk.Label(
-            self.__frame_upload, textvariable=self.__upload_encrypt_pct_var
-        )
-        self.__encrypt_pct_label.grid(row=1, column=0, sticky="e", padx=(200, 5))
+        title_label.grid(row=0, column=0, sticky="ew", pady=(0, 10), padx=5)
 
-        self.__upload_transfer_var = tk.DoubleVar(value=0.0)
-        self.__upload_transfer_label = tk.StringVar(value="")
-        self.__upload_transfer_pct_var = tk.StringVar(value="0%")
-        self.__upload_progress = ttk.Progressbar(
-            self.__frame_upload,
-            variable=self.__upload_transfer_var,
-            orient="horizontal",
-            length=400,
-        )
-        self.__upload_progress.grid(row=2, column=0, sticky="ew", pady=2)
-        self.__upload_file_label = tk.Label(
-            self.__frame_upload, textvariable=self.__upload_transfer_label
-        )
-        self.__upload_file_label.grid(row=3, column=0, sticky="w", padx=5, pady=(0, 5))
-        self.__upload_transfer_pct_label = tk.Label(
-            self.__frame_upload, textvariable=self.__upload_transfer_pct_var
-        )
-        self.__upload_transfer_pct_label.grid(
-            row=3, column=0, sticky="e", padx=(200, 5)
-        )
+        # === Download Section ===
+        download_frame = ttk.LabelFrame(self, text="Downloads", padding=5)
+        download_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
 
-        # Upload pending queue
-        self.__upload_queue_listbox = self._create_scrollable_list(
-            self.__frame_upload, row=4, column=0
-        )
+        # Configure download frame grid
+        download_frame.grid_rowconfigure(0, weight=0)  # Transfer progress
+        download_frame.grid_rowconfigure(1, weight=0)  # Decrypt progress
+        download_frame.grid_rowconfigure(2, weight=1)  # Queue list
 
-        # Upload cancel button
-        self.__upload_cancel_btn = ttk.Button(
-            self.__frame_upload,
-            text="Cancel All Uploads",
-            command=self.__cancel_all_uploads,
-        )
-        self.__upload_cancel_btn.grid(row=5, column=0, sticky="w", padx=5, pady=5)
+        download_frame.grid_columnconfigure(0, weight=1)
 
-        # Upload frame grid configuration
-        self.__frame_upload.grid_rowconfigure(4, weight=1)
-        self.__frame_upload.grid_columnconfigure(0, weight=1)
-
-        # Download Section
-        self.__frame_download = tk.LabelFrame(self.__frame_transferts, text="Downloads")
-        self.__frame_download.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
-
-        # Download progress bars (2-phase: Downloading + Decrypting)
-        self.__download_transfer_var = tk.DoubleVar(value=0.0)
+        # Download transfer progress
         self.__download_transfer_label = tk.StringVar(value="")
         self.__download_transfer_pct_var = tk.StringVar(value="0%")
+        self.__download_transfer_pct_label: Optional[ttk.Label] = None
+
+        ttk.Label(download_frame, text="Download from server:", font=("Helvetica", 10))
+        ttk.Label(
+            download_frame,
+            textvariable=self.__download_transfer_label,
+            foreground="gray",
+        ).grid(row=0, column=0, sticky="w", padx=5, pady=2)
+
         self.__download_progress = ttk.Progressbar(
-            self.__frame_download,
-            variable=self.__download_transfer_var,
+            download_frame,
             orient="horizontal",
             length=400,
+            mode="determinate",
+            maximum=100,
         )
-        self.__download_progress.grid(row=0, column=0, sticky="ew", pady=2)
-        self.__download_file_label = tk.Label(
-            self.__frame_download, textvariable=self.__download_transfer_label
-        )
-        self.__download_file_label.grid(
-            row=1, column=0, sticky="w", padx=5, pady=(0, 5)
-        )
-        self.__download_transfer_pct_label = tk.Label(
-            self.__frame_download, textvariable=self.__download_transfer_pct_var
-        )
-        self.__download_transfer_pct_label.grid(
-            row=1, column=0, sticky="e", padx=(200, 5)
-        )
+        self.__download_progress.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
+        self.__download_transfer_var = tk.DoubleVar(value=0.0)
+        self.__download_progress["variable"] = self.__download_transfer_var
 
-        self.__download_decrypt_var = tk.DoubleVar(value=0.0)
+        self.__download_transfer_pct_label = ttk.Label(
+            download_frame,
+            textvariable=self.__download_transfer_pct_var,
+            foreground=COLOR_IN_PROGRESS,
+        )
+        self.__download_transfer_pct_label.grid(row=0, column=0, sticky="e", padx=5)
+
+        # Download decrypt progress
         self.__download_decrypt_label = tk.StringVar(value="")
         self.__download_decrypt_pct_var = tk.StringVar(value="0%")
+        self.__download_decrypt_pct_label: Optional[ttk.Label] = None
+
+        ttk.Label(download_frame, text="Decryption:", font=("Helvetica", 10))
+        ttk.Label(
+            download_frame,
+            textvariable=self.__download_decrypt_label,
+            foreground="gray",
+        ).grid(row=1, column=0, sticky="w", padx=5, pady=2)
+
         self.__decrypt_progress = ttk.Progressbar(
-            self.__frame_download,
-            variable=self.__download_decrypt_var,
+            download_frame,
             orient="horizontal",
             length=400,
+            mode="determinate",
+            maximum=100,
         )
-        self.__decrypt_progress.grid(row=2, column=0, sticky="ew", pady=2)
-        self.__decrypt_label = tk.Label(
-            self.__frame_download, textvariable=self.__download_decrypt_label
+        self.__decrypt_progress.grid(row=1, column=0, sticky="ew", padx=5, pady=5)
+        self.__download_decrypt_var = tk.DoubleVar(value=0.0)
+        self.__decrypt_progress["variable"] = self.__download_decrypt_var
+
+        self.__download_decrypt_pct_label = ttk.Label(
+            download_frame,
+            textvariable=self.__download_decrypt_pct_var,
+            foreground=COLOR_IN_PROGRESS,
         )
-        self.__decrypt_label.grid(row=3, column=0, sticky="w", padx=5, pady=(0, 5))
-        self.__download_decrypt_pct_label = tk.Label(
-            self.__frame_download, textvariable=self.__download_decrypt_pct_var
+        self.__download_decrypt_pct_label.grid(row=1, column=0, sticky="e", padx=5)
+
+        # Download queue list
+        self.__download_queue_frame = ttk.Frame(download_frame)
+        self.__download_queue_frame.grid(row=2, column=0, sticky="nsew", pady=5)
+
+        # === Upload Section ===
+        upload_frame = ttk.LabelFrame(self, text="Uploads", padding=5)
+        upload_frame.grid(row=2, column=0, sticky="nsew", padx=5, pady=5)
+
+        # Configure upload frame grid
+        upload_frame.grid_rowconfigure(0, weight=0)  # Encrypt progress
+        upload_frame.grid_rowconfigure(1, weight=0)  # Transfer progress
+        upload_frame.grid_rowconfigure(2, weight=1)  # Queue list
+
+        upload_frame.grid_columnconfigure(0, weight=1)
+
+        # Upload encrypt progress
+        self.__upload_encrypt_label = tk.StringVar(value="")
+        self.__upload_encrypt_pct_var = tk.StringVar(value="0%")
+        self.__upload_encrypt_pct_label: Optional[ttk.Label] = None
+
+        ttk.Label(upload_frame, text="Encryption:", font=("Helvetica", 10))
+        ttk.Label(
+            upload_frame, textvariable=self.__upload_encrypt_label, foreground="gray"
+        ).grid(row=0, column=0, sticky="w", padx=5, pady=2)
+
+        self.__encrypt_progress = ttk.Progressbar(
+            upload_frame,
+            orient="horizontal",
+            length=400,
+            mode="determinate",
+            maximum=100,
         )
-        self.__download_decrypt_pct_label.grid(
-            row=3, column=0, sticky="e", padx=(200, 5)
+        self.__encrypt_progress.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
+        self.__upload_encrypt_var = tk.DoubleVar(value=0.0)
+        self.__encrypt_progress["variable"] = self.__upload_encrypt_var
+
+        self.__upload_encrypt_pct_label = ttk.Label(
+            upload_frame,
+            textvariable=self.__upload_encrypt_pct_var,
+            foreground=COLOR_IN_PROGRESS,
         )
+        self.__upload_encrypt_pct_label.grid(row=0, column=0, sticky="e", padx=5)
 
-        # Download pending queue
-        self.__download_queue_listbox = self._create_scrollable_list(
-            self.__frame_download, row=4, column=0
+        # Upload transfer progress
+        self.__upload_transfer_label = tk.StringVar(value="")
+        self.__upload_transfer_pct_var = tk.StringVar(value="0%")
+        self.__upload_transfer_pct_label: Optional[ttk.Label] = None
+
+        ttk.Label(upload_frame, text="Upload to server:", font=("Helvetica", 10))
+        ttk.Label(
+            upload_frame, textvariable=self.__upload_transfer_label, foreground="gray"
+        ).grid(row=1, column=0, sticky="w", padx=5, pady=2)
+
+        self.__upload_progress = ttk.Progressbar(
+            upload_frame,
+            orient="horizontal",
+            length=400,
+            mode="determinate",
+            maximum=100,
         )
+        self.__upload_progress.grid(row=1, column=0, sticky="ew", padx=5, pady=5)
+        self.__upload_transfer_var = tk.DoubleVar(value=0.0)
+        self.__upload_progress["variable"] = self.__upload_transfer_var
 
-        # Download cancel button
-        self.__download_cancel_btn = ttk.Button(
-            self.__frame_download,
-            text="Cancel All Downloads",
-            command=self.__cancel_all_downloads,
+        self.__upload_transfer_pct_label = ttk.Label(
+            upload_frame,
+            textvariable=self.__upload_transfer_pct_var,
+            foreground=COLOR_IN_PROGRESS,
         )
-        self.__download_cancel_btn.grid(row=5, column=0, sticky="w", padx=5, pady=5)
+        self.__upload_transfer_pct_label.grid(row=1, column=0, sticky="e", padx=5)
 
-        # Download frame grid configuration
-        self.__frame_download.grid_rowconfigure(4, weight=1)
-        self.__frame_download.grid_columnconfigure(0, weight=1)
-
-        # Transferts tab grid configuration
-        self.__frame_transferts.grid_rowconfigure(0, weight=1)
-        self.__frame_transferts.grid_rowconfigure(1, weight=1)
-        self.__frame_transferts.grid_columnconfigure(0, weight=1)
-
-        # Add Transferts frame directly to TransferFrame (no tab)
-        self.__frame_transferts.grid(row=0, column=0, sticky="nsew")
-
-    def _create_scrollable_list(self, master, row, column):
-        """Create a scrollable listbox with scrollbar.
-
-        Args:
-            master: Parent widget
-            row: Grid row position
-            column: Grid column position
-        Returns:
-            Listbox widget
-        """
-        frame = tk.Frame(master)
-        frame.grid(row=row, column=column, sticky="nsew", padx=5, pady=5)
-
-        scrollbar = ttk.Scrollbar(frame)
-        scrollbar.grid(row=0, column=1, sticky="ns")
-
-        listbox = tk.Listbox(
-            frame,
-            yscrollcommand=scrollbar.set,
-            height=5,
-        )
-        listbox.grid(row=0, column=0, sticky="nsew")
-        scrollbar.config(command=listbox.yview)
-
-        # Configure grid weights for vertical expansion
-        frame.grid_rowconfigure(0, weight=1)
-        frame.grid_columnconfigure(0, weight=1)
-
-        return listbox
-
-    def grid(self, *args, **kwargs):
-        """Grid layout for this frame."""
-        super().grid(*args, **kwargs)
+        # Upload queue list
+        self.__upload_queue_frame = ttk.Frame(upload_frame)
+        self.__upload_queue_frame.grid(row=2, column=0, sticky="nsew", pady=5)
 
     def _register_progress_manager_callbacks(self):
         """Register callback functions with ProgressManager."""
@@ -227,158 +221,177 @@ class TransferFrame(tk.Frame):
             upload_encrypt_callback=self.on_upload_encrypt_progress,
             upload_transfer_callback=self.on_upload_transfer_progress,
             upload_reset_callback=self.on_upload_reset,
+            # Color callbacks for completion state (Feature 2)
+            download_transfer_color_callback=self.on_download_transfer_color,
+            download_decrypt_color_callback=self.on_download_decrypt_color,
+            upload_encrypt_color_callback=self.on_upload_encrypt_color,
+            upload_transfer_color_callback=self.on_upload_transfer_color,
         )
 
-    def _update_download_queue(self, courant, q: list):
-        """Update the download queue listbox in Transferts tab.
-
-        Uses incremental updates to avoid flickering from full rebuilds.
+    def _set_progress_color(self, pct_label: Optional[ttk.Label], is_complete: bool):
+        """Set percentage label color based on completion state.
 
         Args:
-            courant: Currently downloading item or None
-            q: Queue of pending downloads
+            pct_label: The percentage label widget
+            is_complete: True if complete (green), False if in progress (blue)
         """
-        # Get current items in listbox
-        current_items = list(self.__download_queue_listbox.get(0, tk.END))
+        if pct_label is None:
+            return
+        color = COLOR_COMPLETED if is_complete else COLOR_IN_PROGRESS
+        pct_label.configure(foreground=color)
 
-        # Build list of new items with mode indicators
-        new_items = []
-        for item in q:
-            mode_str = ""
-            # Try to get inline mode from ProgressManager via tuuid
-            if hasattr(item, "tuuid") and self.__transfer_handler:
-                is_inline = (
-                    self.__transfer_handler.progress_manager.get_download_inline_mode(
-                        item.tuuid
-                    )
-                )
-                mode_str = " [INLINE]" if is_inline else " [2PHASE]"
-            new_items.append(item.nom + mode_str)
-
-        # Only update if items actually changed
-        if current_items != new_items:
-            self.__download_queue_listbox.delete(0, tk.END)
-            for item in new_items:
-                self.__download_queue_listbox.insert(tk.END, item)
-
-    def _update_upload_queue(self, courant, q: list):
-        """Update the upload queue listbox in Transferts tab.
-
-        Uses incremental updates to avoid flickering from full rebuilds.
-
-        Args:
-            courant: Currently uploading item or None
-            q: Queue of pending uploads
-        """
-        # Get current items in listbox
-        current_items = list(self.__upload_queue_listbox.get(0, tk.END))
-
-        # Build list of new items
-        new_items = [str(item.path) for item in q]
-
-        # Only update if items actually changed
-        if current_items != new_items:
-            self.__upload_queue_listbox.delete(0, tk.END)
-            for item in new_items:
-                self.__upload_queue_listbox.insert(tk.END, item)
-
-    # Callback methods for ProgressManager
-    def on_upload_encrypt_progress(self, filename: str, progress: float):
-        """Callback for upload encryption progress."""
-        self.__upload_encrypt_var.set(progress)
-        self.__upload_encrypt_label.set(f"[File: {filename}]")
-        self.__upload_encrypt_pct_var.set(f"{int(progress)}%")
-
-    def on_upload_reset(self, filename: str):
-        """Callback to reset upload transfer progress before new upload."""
-        self.__upload_transfer_var.set(0.0)
-        self.__upload_transfer_label.set("")
-        self.__upload_transfer_pct_var.set("0%")
-
-    def on_upload_transfer_progress(self, filename: str, progress: float):
-        """Callback for upload transfer progress."""
-        self.__upload_transfer_var.set(progress)
-        size_info = self._get_upload_size_info(filename)
-        if size_info:
-            self.__upload_transfer_label.set(f"[File: {filename} - {size_info}]")
-        else:
-            self.__upload_transfer_label.set(f"[File: {filename}]")
-        self.__upload_transfer_pct_var.set(f"{int(progress)}%")
+    # === Download Progress Callbacks ===
 
     def on_download_transfer_progress(self, filename: str, progress: float):
-        """Callback for download transfer progress."""
+        """Callback to update download transfer progress bar."""
+        self.__download_transfer_label.set(filename)
         self.__download_transfer_var.set(progress)
+        self.__download_transfer_pct_var.set(f"{progress:.1f}%")
 
-        # Get mode indicator from current download
-        mode_label = ""
-        if self.__transfer_handler and self.__transfer_handler.progress_manager:
-            current_download = (
-                self.__transfer_handler.progress_manager.get_current_download()
-            )
-            if current_download:
-                is_inline = current_download.get("inline", False)
-                mode_label = " [INLINE]" if is_inline else " [2PHASE]"
+    def on_download_decrypt_progress(self, filename: str, progress: float):
+        """Callback to update download decrypt progress bar."""
+        self.__download_decrypt_label.set(filename)
+        self.__download_decrypt_var.set(progress)
+        self.__download_decrypt_pct_var.set(f"{progress:.1f}%")
 
-        size_info = self._get_download_size_info(filename)
-        if size_info:
-            self.__download_transfer_label.set(
-                f"[File: {filename} - {size_info}]" + mode_label
-            )
-        else:
-            self.__download_transfer_label.set(f"[File: {filename}]" + mode_label)
-        self.__download_transfer_pct_var.set(f"{int(progress)}%")
+    # === Upload Progress Callbacks ===
+
+    def on_upload_encrypt_progress(self, filename: str, progress: float):
+        """Callback to update upload encrypt progress bar."""
+        self.__upload_encrypt_label.set(filename)
+        self.__upload_encrypt_var.set(progress)
+        self.__upload_encrypt_pct_var.set(f"{progress:.1f}%")
+
+    def on_upload_transfer_progress(self, filename: str, progress: float):
+        """Callback to update upload transfer progress bar."""
+        self.__upload_transfer_label.set(filename)
+        self.__upload_transfer_var.set(progress)
+        self.__upload_transfer_pct_var.set(f"{progress:.1f}%")
+
+    # === Color Change Callbacks (Feature 2) ===
+
+    def on_download_transfer_color(self, filename: str, is_complete: bool):
+        """Callback to change download transfer percentage label color."""
+        self._set_progress_color(self.__download_transfer_pct_label, is_complete)
+
+    def on_download_decrypt_color(self, filename: str, is_complete: bool):
+        """Callback to change download decrypt percentage label color."""
+        self._set_progress_color(self.__download_decrypt_pct_label, is_complete)
+
+    def on_upload_encrypt_color(self, filename: str, is_complete: bool):
+        """Callback to change upload encrypt percentage label color."""
+        self._set_progress_color(self.__upload_encrypt_pct_label, is_complete)
+
+    def on_upload_transfer_color(self, filename: str, is_complete: bool):
+        """Callback to change upload transfer percentage label color."""
+        self._set_progress_color(self.__upload_transfer_pct_label, is_complete)
+
+    # === Reset Callbacks ===
 
     def on_download_reset(self, filename: str):
         """Callback to reset download decrypt progress before new decryption."""
         self.__download_decrypt_var.set(0.0)
         self.__download_decrypt_label.set("")
         self.__download_decrypt_pct_var.set("0%")
+        # Reset color to in-progress state
+        self._set_progress_color(self.__download_decrypt_pct_label, False)
 
-    def on_download_decrypt_progress(self, filename: str, progress: float):
-        """Callback for download decryption progress."""
-        self.__download_decrypt_var.set(progress)
-
-        # Get mode indicator from current download
-        mode_label = ""
-        if self.__transfer_handler and self.__transfer_handler.progress_manager:
-            current_download = (
-                self.__transfer_handler.progress_manager.get_current_download()
-            )
-            if current_download:
-                is_inline = current_download.get("inline", False)
-                mode_label = " [INLINE]" if is_inline else " [2PHASE]"
-
-        self.__download_decrypt_label.set(f"[File: {filename}]" + mode_label)
-        self.__download_decrypt_pct_var.set(f"{int(progress)}%")
-
-    def _get_upload_size_info(self, filename: str) -> str:
-        """Get size info for upload file."""
-        # TODO: Get actual size from upload queue
-        return self._format_size(0)
-
-    def _get_download_size_info(self, filename: str) -> str:
-        """Get size info for download file."""
-        # TODO: Get actual size from download queue
-        return self._format_size(0)
-
-    def __cancel_all_uploads(self):
-        """Cancel all uploads and clear the upload UI."""
-        self.__transfer_handler.uploader.cancel_all_uploads()
-        # Clear upload progress UI
-        self.__upload_encrypt_var.set(0.0)
-        self.__upload_encrypt_label.set("")
-        self.__upload_encrypt_pct_var.set("0%")
+    def on_upload_reset(self, filename: str):
+        """Callback to reset upload transfer progress before new upload."""
         self.__upload_transfer_var.set(0.0)
         self.__upload_transfer_label.set("")
         self.__upload_transfer_pct_var.set("0%")
+        # Reset color to in-progress state
+        self._set_progress_color(self.__upload_transfer_pct_label, False)
 
-    def __cancel_all_downloads(self):
+    # === Queue Update Methods ===
+
+    def _update_download_queue(self, current: Optional[object], queue: list):
+        """Update the download queue display.
+
+        Args:
+            current: Currently downloading file/directory
+            queue: List of items in download queue
+        """
+        # Clear existing queue items
+        for widget in self.__download_queue_frame.winfo_children():
+            widget.destroy()
+
+        # Build queue display
+        if current:
+            current_label = tk.Label(
+                self.__download_queue_frame,
+                text=f"→ {getattr(current, 'nom', 'File')}",
+                foreground=COLOR_IN_PROGRESS,
+                font=("Helvetica", 10),
+            )
+            current_label.pack(anchor="w", pady=2)
+
+        for i, item in enumerate(queue):
+            label = tk.Label(
+                self.__download_queue_frame,
+                text=f"  • {getattr(item, 'nom', 'Item')} [{'INLINE' if getattr(item, 'inline', False) else '2PHASE'}]",
+                foreground=COLOR_IN_PROGRESS,
+                font=("Helvetica", 9),
+            )
+            label.pack(anchor="w", pady=1)
+
+    def _update_upload_queue(self, current: Optional[object], queue: list):
+        """Update the upload queue display.
+
+        Args:
+            current: Currently uploading file/directory
+            queue: List of items in upload queue
+        """
+        # Clear existing queue items
+        for widget in self.__upload_queue_frame.winfo_children():
+            widget.destroy()
+
+        # Build queue display
+        if current:
+            current_label = tk.Label(
+                self.__upload_queue_frame,
+                text=f"→ {getattr(current, 'path', None) and (getattr(current.path, 'name', 'File') if hasattr(current, 'path') else 'File') or 'File'}",
+                foreground=COLOR_IN_PROGRESS,
+                font=("Helvetica", 10),
+            )
+            current_label.pack(anchor="w", pady=2)
+
+        for i, item in enumerate(queue):
+            label = tk.Label(
+                self.__upload_queue_frame,
+                text=f"  • {getattr(item, 'path', None) and item.path.name or 'Item'}",
+                foreground=COLOR_IN_PROGRESS,
+                font=("Helvetica", 9),
+            )
+            label.pack(anchor="w", pady=1)
+
+    # === Cancel Methods ===
+
+    def cancel_all_downloads(self):
         """Cancel all downloads and clear the download UI."""
         self.__transfer_handler.downloader.cancel_all_downloads()
-        # Clear download progress UI
+        # Clear download progress UI and reset colors
         self.__download_transfer_var.set(0.0)
         self.__download_transfer_label.set("")
         self.__download_transfer_pct_var.set("0%")
         self.__download_decrypt_var.set(0.0)
         self.__download_decrypt_label.set("")
         self.__download_decrypt_pct_var.set("0%")
+        # Reset colors to in-progress state
+        self._set_progress_color(self.__download_transfer_pct_label, False)
+        self._set_progress_color(self.__download_decrypt_pct_label, False)
+
+    def cancel_all_uploads(self):
+        """Cancel all uploads and clear the upload UI."""
+        self.__transfer_handler.uploader.cancel_all_uploads()
+        # Clear upload progress UI and reset colors
+        self.__upload_encrypt_var.set(0.0)
+        self.__upload_encrypt_label.set("")
+        self.__upload_encrypt_pct_var.set("0%")
+        self.__upload_transfer_var.set(0.0)
+        self.__upload_transfer_label.set("")
+        self.__upload_transfer_pct_var.set("0%")
+        # Reset colors to in-progress state
+        self._set_progress_color(self.__upload_encrypt_pct_label, False)
+        self._set_progress_color(self.__upload_transfer_pct_label, False)

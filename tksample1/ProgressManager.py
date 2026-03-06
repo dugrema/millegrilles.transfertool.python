@@ -43,6 +43,26 @@ class ProgressManager:
         self.__upload_transfer_callback: Optional[Callable[[str, float], None]] = None
         self.__upload_reset_callback: Optional[Callable[[str], None]] = None
 
+        # Callbacks for progress bar color updates (Feature 2)
+        self.__download_transfer_color_callback: Optional[
+            Callable[[str, bool], None]
+        ] = None
+        self.__download_decrypt_color_callback: Optional[
+            Callable[[str, bool], None]
+        ] = None
+        self.__upload_encrypt_color_callback: Optional[Callable[[str, bool], None]] = (
+            None
+        )
+        self.__upload_transfer_color_callback: Optional[Callable[[str, bool], None]] = (
+            None
+        )
+
+        # Color state tracking for completion (Feature 2)
+        self.__download_transfer_complete: set = set()
+        self.__download_decrypt_complete: set = set()
+        self.__upload_encrypt_complete: set = set()
+        self.__upload_transfer_complete: set = set()
+
         # Download queue and current transfer
         self.__download_queue: list = []
         self.__current_download: Optional[dict] = None
@@ -60,6 +80,11 @@ class ProgressManager:
         upload_encrypt_callback: Optional[Callable[[str, float], None]] = None,
         upload_transfer_callback: Optional[Callable[[str, float], None]] = None,
         upload_reset_callback: Optional[Callable[[str], None]] = None,
+        # Feature 2: Color callbacks
+        download_transfer_color_callback: Optional[Callable[[str, bool], None]] = None,
+        download_decrypt_color_callback: Optional[Callable[[str, bool], None]] = None,
+        upload_encrypt_color_callback: Optional[Callable[[str, bool], None]] = None,
+        upload_transfer_color_callback: Optional[Callable[[str, bool], None]] = None,
     ):
         """Register callback functions for progress updates.
 
@@ -70,6 +95,10 @@ class ProgressManager:
             upload_encrypt_callback: Called with (filename, progress_percentage) during encryption
             upload_transfer_callback: Called with (filename, progress_percentage) during upload
             upload_reset_callback: Called with (filename) before starting new upload transfer
+            download_transfer_color_callback: Called with (filename, is_complete) for download transfer color
+            download_decrypt_color_callback: Called with (filename, is_complete) for decrypt color
+            upload_encrypt_color_callback: Called with (filename, is_complete) for encryption color
+            upload_transfer_color_callback: Called with (filename, is_complete) for upload transfer color
         """
         with self.__lock:
             if download_transfer_callback is not None:
@@ -84,6 +113,18 @@ class ProgressManager:
                 self.__upload_transfer_callback = upload_transfer_callback
             if upload_reset_callback is not None:
                 self.__upload_reset_callback = upload_reset_callback
+
+            # Feature 2: Color callbacks
+            if download_transfer_color_callback is not None:
+                self.__download_transfer_color_callback = (
+                    download_transfer_color_callback
+                )
+            if download_decrypt_color_callback is not None:
+                self.__download_decrypt_color_callback = download_decrypt_color_callback
+            if upload_encrypt_color_callback is not None:
+                self.__upload_encrypt_color_callback = upload_encrypt_color_callback
+            if upload_transfer_color_callback is not None:
+                self.__upload_transfer_color_callback = upload_transfer_color_callback
 
     def _invoke_callback(self, callback: Callable, *args):
         """Invoke callback in a thread-safe manner using tkinter's after().
@@ -334,6 +375,8 @@ class ProgressManager:
         """
         if self.__download_transfer_callback is not None:
             self._invoke_callback(self.__download_transfer_callback, filename, 100.0)
+        # Feature 2: Mark as complete for green color
+        self.mark_download_transfer_complete(filename)
 
     def set_download_decrypt_final(self, filename: str):
         """Set download decryption progress to final 100% when decryption completes (inline mode).
@@ -343,6 +386,8 @@ class ProgressManager:
         """
         if self.__download_decrypt_callback is not None:
             self._invoke_callback(self.__download_decrypt_callback, filename, 100.0)
+        # Feature 2: Mark as complete for green color
+        self.mark_download_decrypt_complete(filename)
 
     def set_upload_encrypt_final(self, filename: str):
         """Set upload encryption progress to final 100% when encryption completes.
@@ -352,6 +397,8 @@ class ProgressManager:
         """
         if self.__upload_encrypt_callback is not None:
             self._invoke_callback(self.__upload_encrypt_callback, filename, 100.0)
+        # Feature 2: Mark as complete for green color
+        self.mark_upload_encrypt_complete(filename)
 
     def set_upload_transfer_final(self, filename: str):
         """Set upload transfer progress to final 100% when upload completes.
@@ -361,6 +408,156 @@ class ProgressManager:
         """
         if self.__upload_transfer_callback is not None:
             self._invoke_callback(self.__upload_transfer_callback, filename, 100.0)
+        # Feature 2: Mark as complete for green color
+        self.mark_upload_transfer_complete(filename)
+
+    # Feature 2: Color state tracking methods for green progress bars on completion
+
+    def mark_download_transfer_complete(self, filename: str):
+        """Mark download transfer as complete (turn green).
+
+        Args:
+            filename: Name of the file being downloaded
+        """
+        with self.__lock:
+            self.__download_transfer_complete.add(filename)
+        if self.__download_transfer_color_callback is not None:
+            self._invoke_callback(
+                self.__download_transfer_color_callback, filename, True
+            )
+
+    def mark_download_decrypt_complete(self, filename: str):
+        """Mark download decrypt as complete (turn green).
+
+        Args:
+            filename: Name of the file being decrypted
+        """
+        with self.__lock:
+            self.__download_decrypt_complete.add(filename)
+        if self.__download_decrypt_color_callback is not None:
+            self._invoke_callback(
+                self.__download_decrypt_color_callback, filename, True
+            )
+
+    def mark_upload_encrypt_complete(self, filename: str):
+        """Mark upload encrypt as complete (turn green).
+
+        Args:
+            filename: Name of the file being encrypted
+        """
+        with self.__lock:
+            self.__upload_encrypt_complete.add(filename)
+        if self.__upload_encrypt_color_callback is not None:
+            self._invoke_callback(self.__upload_encrypt_color_callback, filename, True)
+
+    def mark_upload_transfer_complete(self, filename: str):
+        """Mark upload transfer as complete (turn green).
+
+        Args:
+            filename: Name of the file being uploaded
+        """
+        with self.__lock:
+            self.__upload_transfer_complete.add(filename)
+        if self.__upload_transfer_color_callback is not None:
+            self._invoke_callback(self.__upload_transfer_color_callback, filename, True)
+
+    def reset_download_transfer_complete(self, filename: str):
+        """Reset download transfer color (remove from complete set).
+
+        Args:
+            filename: Name of the file to reset
+        """
+        with self.__lock:
+            self.__download_transfer_complete.discard(filename)
+        if self.__download_transfer_color_callback is not None:
+            self._invoke_callback(
+                self.__download_transfer_color_callback, filename, False
+            )
+
+    def reset_download_decrypt_complete(self, filename: str):
+        """Reset download decrypt color (remove from complete set).
+
+        Args:
+            filename: Name of the file to reset
+        """
+        with self.__lock:
+            self.__download_decrypt_complete.discard(filename)
+        if self.__download_decrypt_color_callback is not None:
+            self._invoke_callback(
+                self.__download_decrypt_color_callback, filename, False
+            )
+
+    def reset_upload_encrypt_complete(self, filename: str):
+        """Reset upload encrypt color (remove from complete set).
+
+        Args:
+            filename: Name of the file to reset
+        """
+        with self.__lock:
+            self.__upload_encrypt_complete.discard(filename)
+        if self.__upload_encrypt_color_callback is not None:
+            self._invoke_callback(self.__upload_encrypt_color_callback, filename, False)
+
+    def reset_upload_transfer_complete(self, filename: str):
+        """Reset upload transfer color (remove from complete set).
+
+        Args:
+            filename: Name of the file to reset
+        """
+        with self.__lock:
+            self.__upload_transfer_complete.discard(filename)
+        if self.__upload_transfer_color_callback is not None:
+            self._invoke_callback(
+                self.__upload_transfer_color_callback, filename, False
+            )
+
+    def is_download_transfer_complete(self, filename: str) -> bool:
+        """Check if download transfer is marked as complete.
+
+        Args:
+            filename: Name of the file to check
+
+        Returns:
+            True if complete, False otherwise
+        """
+        with self.__lock:
+            return filename in self.__download_transfer_complete
+
+    def is_download_decrypt_complete(self, filename: str) -> bool:
+        """Check if download decrypt is marked as complete.
+
+        Args:
+            filename: Name of the file to check
+
+        Returns:
+            True if complete, False otherwise
+        """
+        with self.__lock:
+            return filename in self.__download_decrypt_complete
+
+    def is_upload_encrypt_complete(self, filename: str) -> bool:
+        """Check if upload encrypt is marked as complete.
+
+        Args:
+            filename: Name of the file to check
+
+        Returns:
+            True if complete, False otherwise
+        """
+        with self.__lock:
+            return filename in self.__upload_encrypt_complete
+
+    def is_upload_transfer_complete(self, filename: str) -> bool:
+        """Check if upload transfer is marked as complete.
+
+        Args:
+            filename: Name of the file to check
+
+        Returns:
+            True if complete, False otherwise
+        """
+        with self.__lock:
+            return filename in self.__upload_transfer_complete
 
     def _should_update(self, update_type: str) -> bool:
         """Check if progress update should be invoked based on throttling.
