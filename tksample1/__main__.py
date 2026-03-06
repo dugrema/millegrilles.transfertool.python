@@ -135,6 +135,10 @@ class App:
             self.__stop_event, downdir=self.config.downdir, tmpdir=self.config.tmpdir
         )
 
+        # Load configuration before creating other components
+        # This ensures download_path is loaded from saved config
+        self.auth.init_config()
+
         self.transfer_handler = TransferHandler(self.__stop_event, self.auth)
         self.navigation = Navigation(
             self.__stop_event, self.auth, self.transfer_handler
@@ -156,7 +160,6 @@ class App:
     def exec(self):
         self.__logger.info("Debut mainloop")
         Thread(name="Stop thread", target=self.stop_thread).start()
-        self.auth.init_config()
 
         # Update NavigationFrame label with loaded download_path if in GUI mode
         if not self.cli_mode and hasattr(self.window, "_Window__frame_navigation"):

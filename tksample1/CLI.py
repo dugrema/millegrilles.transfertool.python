@@ -263,6 +263,8 @@ class CLIHandler:
             self.cmd_lcd(args)
         elif command == "lpwd":
             self.cmd_lpwd()
+        elif command == "savedownload":
+            self.cmd_savedownload(args)
         elif command == "lls":
             self.cmd_lls(args)
         elif command == "exit" or command == "quit":
@@ -507,6 +509,11 @@ class CLIHandler:
             print("Configuration:")
             print(f"  Download mode: {'Inline' if self.__inline_mode else 'Two-Phase'}")
             print(f"  Local directory: {self.__local_dir}")
+            print(f"  Saved download directory: {self.__auth.download_path}")
+
+            # Indicate if local dir differs from saved config
+            if self.__local_dir != self.__auth.download_path:
+                print(f"  Note: Local directory differs from saved config")
         else:
             print("Status: Disconnected")
             if self.__auth.nom_usager:
@@ -607,8 +614,12 @@ class CLIHandler:
         print("  lls [pat]    - List local directory (glob pattern)")
         print("  lcd [path]   - Change local directory (affects download destination)")
         print("  lpwd         - Print local working directory")
+        print(
+            "  savedownload [path] - Save current local directory (or path) to config"
+        )
         print()
         print("  Note: Downloads save to the current local directory (set by lcd)")
+        print("  Note: Use 'savedownload' to persist your download directory in config")
         print()
         print("Transfer:")
         print("  get <file> [--inline] - Download file to local directory")
@@ -1136,6 +1147,38 @@ class CLIHandler:
     def cmd_lpwd(self):
         """Print local working directory."""
         print(str(self.__local_dir))
+
+    def cmd_savedownload(self, args: List[str]):
+        """Save current download directory to config.
+
+        Args:
+            args: Optional path to save. If empty, saves current __local_dir.
+        """
+        if args:
+            # Save specific path provided by user
+            path = args[0]
+            if path.startswith("~"):
+                path = pathlib.Path(path).expanduser()
+
+            new_dir = pathlib.Path(path)
+
+            if not new_dir.exists():
+                print(f"Error: Directory '{path}' does not exist")
+                return
+
+            if not new_dir.is_dir():
+                print(f"Error: '{path}' is not a directory")
+                return
+
+            self.__auth.download_path = new_dir.resolve()
+            self.__local_dir = new_dir
+            self.__auth.sauvegarder_configuration()
+            print(f"Saved download directory to config: {self.__local_dir}")
+        else:
+            # Save current local directory
+            self.__auth.download_path = self.__local_dir
+            self.__auth.sauvegarder_configuration()
+            print(f"Saved download directory to config: {self.__local_dir}")
 
     def cmd_lls(self, args: List[str]):
         """List local directory contents.
