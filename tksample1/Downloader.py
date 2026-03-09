@@ -94,10 +94,14 @@ class DownloadRepertoire:
         self.destination = destination
         self.inline = inline
 
-        # Progress tracking attributes for GUI
+        # Progress tracking attributes for GUI (same as DownloadFichier)
+        self.taille_chiffree = 0  # Total encrypted size (calculated later)
         self.taille_recue = 0  # Cumulative received bytes
         self.taille_dechiffree = 0  # Cumulative decrypted bytes
-        self.taille_chiffree = 0  # Total encrypted size (for percentage calculation)
+
+        # Recursive progress tracking
+        self.total_files = 0  # Total number of files in directory tree
+        self.completed_files = 0  # Number of files completed
 
     def cancel(self):
         """Cancel the directory download."""
@@ -467,12 +471,66 @@ class Downloader:
         else:
             return "Download inactif"
 
+    def _calculate_directory_size(self, repertoire_info, connexion):
+        """
+        Calculate total encrypted size of a directory and all nested contents.
+
+        Args:
+            repertoire_info: Directory metadata dict with tuuid and metadata
+            connexion: Authentification instance
+
+        Returns:
+            tuple: (total_size, total_file_count)
+        """
+        total_size = 0
+        total_files = 0
+
+        # Fetch directory contents
+        rep = sync_collection(connexion, repertoire_info["tuuid"])
+
+        for item in rep.fichiers:
+            if item["type_node"] == "Fichier":
+                # File: add its encrypted size
+                encrypted_size = item.get("version_courante", {}).get("taille", 0)
+                total_size += encrypted_size
+                total_files += 1
+            elif item["type_node"] in ["Collection", "Repertoire"]:
+                # Subdirectory: recursively calculate
+                sub_size, sub_files = self._calculate_directory_size(item, connexion)
+                total_size += sub_size
+                total_files += sub_files
+
+        # Handle empty directories: use placeholder size to avoid division by zero
+        if total_files == 0:
+            total_size = 1
+            total_files = 1
+
+        return total_size, total_files
+
     def download_repertoire(self, item: DownloadRepertoire):
         tuuid = item.cuuid
 
         # Check for cancellation before starting
         if item.is_cancelled():
             raise CancelledDownloadException()
+
+        # Pre-calculate total size and file count
+        total_size, total_files = self._calculate_directory_size(
+            {"tuuid": tuuid, "metadata": {"nom": item.nom}}, self.__connexion
+        )
+        item.taille_chiffree = total_size
+        item.total_files = total_files
+        item.completed_files = 0
+
+        # Check for cancellation after pre-calculation
+        if item.is_cancelled():
+            raise CancelledDownloadException()
+
+        # Set as current download in ProgressManager (directory level)
+        if self.__progress_manager:
+            self.__progress_manager.set_current_download(
+                {"filename": item.nom, "tuuid": item.tuuid}
+            )
 
         rep = sync_collection(self.__connexion, tuuid)
 
@@ -521,6 +579,33 @@ class Downloader:
                             # Restore old progress wrapper
                             self.__progress_wrapper = old_progress_wrapper
 
+                            # *** NEW: Aggregate progress to parent directory ***
+                            if self.__progress_manager and item.taille_chiffree > 0:
+                                # Add file's received size to directory cumulative
+                                item.taille_recue += download_fichier.taille_recue
+                                item.taille_dechiffree += (
+                                    download_fichier.taille_dechiffree
+                                )
+
+                                # Calculate directory-level progress percentage
+                                transfer_progress = (
+                                    item.taille_recue / item.taille_chiffree
+                                ) * 100
+                                decrypt_progress = (
+                                    item.taille_dechiffree / item.taille_chiffree
+                                ) * 100
+
+                                # Report progress for the directory (not individual file)
+                                self.__progress_manager.update_download_transfer(
+                                    item.nom, min(100.0, transfer_progress)
+                                )
+                                self.__progress_manager.update_download_decrypt(
+                                    item.nom, min(100.0, decrypt_progress)
+                                )
+
+                                # Track completed file count
+                                item.completed_files += 1
+
                         except FileExistsError:
                             pass  # OK
                 else:
@@ -530,8 +615,34 @@ class Downloader:
                     )
                     self.download_repertoire(download_repertoire)
 
+                    # *** NEW: Aggregate subdirectory progress to parent ***
+                    if self.__progress_manager:
+                        item.taille_recue += download_repertoire.taille_recue
+                        item.taille_dechiffree += download_repertoire.taille_dechiffree
+
+                        # Update parent progress
+                        if item.taille_chiffree > 0:
+                            transfer_progress = (
+                                item.taille_recue / item.taille_chiffree
+                            ) * 100
+                            decrypt_progress = (
+                                item.taille_dechiffree / item.taille_chiffree
+                            ) * 100
+
+                            self.__progress_manager.update_download_transfer(
+                                item.nom, min(100.0, transfer_progress)
+                            )
+                            self.__progress_manager.update_download_decrypt(
+                                item.nom, min(100.0, decrypt_progress)
+                            )
+
             # Mark directory download as complete
             item.download_complete.set()
+
+            # *** NEW: Set final progress to 100% ***
+            if self.__progress_manager:
+                self.__progress_manager.set_download_transfer_complete(item.nom)
+                self.__progress_manager.set_download_decrypt_complete(item.nom)
         except Exception as e:
             # Check if it's a cancellation
             if "cancelled" in str(e).lower():
