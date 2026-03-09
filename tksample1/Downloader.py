@@ -1,5 +1,6 @@
 import logging
 import pathlib
+import time
 import warnings
 from enum import Enum, auto
 from threading import Event, Lock, Thread
@@ -831,7 +832,7 @@ class Downloader:
             raise
 
     def _download_fichier_twophase(self, item: DownloadFichier):
-        """Download then decrypt file (traditional two-phase mode)."""
+        """Download then decrypt file (traditional two-phase mode) with pause/resume support."""
         self.__connexion.connect_event.wait()
         if self.__stop_event.is_set():
             raise Exception("Stopping")
@@ -856,59 +857,244 @@ class Downloader:
         url_fichier = f"{self.__connexion.filehost_url}/files/{item.fuuid}"
 
         path_reception = pathlib.Path(item.path_destination, item.nom)
-        if path_reception.exists():
-            raise FileExistsError()
-
         path_reception_work = pathlib.Path(item.path_destination, item.nom + ".work")
+        item.partial_download_path = path_reception_work
+
+        try:
+            if path_reception.exists():
+                raise FileExistsError()
+        except FileExistsError:
+            self.__logger.warning("Fichier %s existe deja" % path_reception_work)
+            item.download_complete.set()
+            return
+
+        # Phase 3: Check for partial download and initialize resume state
+        total_bytes_received = 0
+        headers = {}
+        is_resume = False
+
+        if path_reception_work.exists():
+            existing_size = path_reception_work.stat().st_size
+
+            # Task 4: Validate partial download integrity
+            if existing_size >= item.taille_chiffree:
+                # Case B: File is complete, skip download and go to decryption
+                self.__logger.info(
+                    "Resume complete, proceeding to decryption for %s" % item.nom
+                )
+                total_bytes_received = existing_size
+                item.state = DownloadState.RESUMING
+                is_resume = True
+            elif existing_size > 0:
+                # Case A: Valid partial download, resume from existing size
+                self.__logger.info(
+                    "Resuming download for %s from %d bytes (%.1f%%)"
+                    % (
+                        item.nom,
+                        existing_size,
+                        (existing_size / item.taille_chiffree) * 100,
+                    )
+                )
+                headers["Range"] = "bytes=%d-" % existing_size
+                total_bytes_received = existing_size
+                item.state = DownloadState.RESUMING
+                is_resume = True
+                self.__connexion.authenticate(self.__https_session)
+            else:
+                # Case A: Corrupt file (0 bytes), delete and restart
+                self.__logger.warning(
+                    "Corrupt partial download detected, restarting for %s" % item.nom
+                )
+                path_reception_work.unlink()
+        else:
+            # Fresh download
+            item.state = DownloadState.DOWNLOADING
+
+        # Task 3: Initialize progress bar at correct percentage for resume
+        if self.__progress_manager and is_resume:
+            progress = (total_bytes_received / max(1, item.taille_chiffree)) * 100
+            self.__progress_manager.update_download_transfer(item.nom, progress)
+
         self.__logger.debug(
             "Debut download fichier %s (taille : %d)"
             % (path_reception_work, item.taille_chiffree)
         )
         chunks_done = 0
-        try:
-            with open(path_reception_work, "xb") as output:
-                response = self.__https_session.get(url_fichier, stream=True)
-                try:
-                    response.raise_for_status()
-                except HTTPError as e:
-                    if e.response.status_code == 401:
-                        self.__connexion.authenticate(self.__https_session)
-                        response = self.__https_session.get(url_fichier, stream=True)
-                        response.raise_for_status()
-                    else:
-                        raise e
 
-                for chunk in response.iter_content(chunk_size=64 * 1024):
-                    output.write(chunk)
-                    chunks_done += 1
-                    if self.__progress_wrapper:
-                        self.__update_progress("transfer", len(chunk))
-                    elif self.__progress_manager:
-                        self.__update_progress("transfer", len(chunk))
-                    if self.__stop_event.is_set() is True:
-                        path_reception_work.unlink()
-                        raise Exception("Stopping")
-                    if item.is_cancelled():
-                        path_reception_work.unlink()
-                        raise CancelledDownloadException()
-        except FileExistsError:
-            self.__logger.warning("Fichier %s existe deja" % path_reception_work)
-            item.download_complete.set()
-            return
-        else:
-            self.__logger.debug(
-                "Download fichier %s complete, dechiffrage en cours"
-                % path_reception_work
-            )
+        # Download loop with retry mechanism
+        max_retries = 3
+        retry_count = 0
 
-            # Transition progress bar from download to decrypt phase
-            if self.__progress_wrapper:
-                if hasattr(self.__progress_wrapper, "transition_to_decrypt"):
-                    self.__progress_wrapper.transition_to_decrypt()
+        while retry_count < max_retries:
+            try:
+                # Task 1: Properly determine file mode based on download state
+                if path_reception_work.exists():
+                    file_mode = "ab"  # Append mode for resume/retry
                 else:
-                    self.__progress_wrapper.transition_to_encrypt_phase(
-                        total=item.taille_chiffree, desc="Decrypting"
+                    file_mode = "xb"  # Exclusive create for fresh download
+
+                with open(path_reception_work, file_mode) as output:
+                    response = self.__https_session.get(
+                        url_fichier, stream=True, headers=headers
                     )
+                    try:
+                        response.raise_for_status()
+                    except HTTPError as e:
+                        if e.response.status_code == 401:
+                            self.__connexion.authenticate(self.__https_session)
+                            response = self.__https_session.get(
+                                url_fichier, stream=True, headers=headers
+                            )
+                            response.raise_for_status()
+                        elif e.response.status_code in [500, 502, 503, 504]:
+                            # Server error, retry
+                            raise
+                        elif e.response.status_code == 200:
+                            # Task 4: Server doesn't support Range requests (returns 200 instead of 206)
+                            self.__logger.warning(
+                                "Server returned 200 OK instead of 206 Partial Content for %s. Restarting download from beginning."
+                                % item.nom
+                            )
+                            if path_reception_work.exists():
+                                path_reception_work.unlink()
+                            raise DownloadRetryException(
+                                "Server doesn't support Range requests",
+                                retry_count=retry_count,
+                                last_error=e,
+                            )
+                        else:
+                            raise e
+
+                    for chunk in response.iter_content(chunk_size=64 * 1024):
+                        # Check for cancellation
+                        if item.is_cancelled():
+                            path_reception_work.unlink()
+                            raise CancelledDownloadException()
+
+                        # Check for global stop
+                        if self.__stop_event.is_set():
+                            path_reception_work.unlink()
+                            raise Exception("Stopping")
+
+                        # *** NEW: Check for pause ***
+                        if item._DownloadFichier__pause_event.is_set():
+                            # Flush buffer to disk before pausing
+                            self.__logger.info("Download paused, saving progress")
+                            output.flush()
+                            item.state = DownloadState.PAUSED
+
+                            # Wait for resume signal (5 minute timeout)
+                            item._DownloadFichier__resume_event.wait(timeout=300)
+                            if item._DownloadFichier__resume_event.is_set():
+                                item.state = DownloadState.DOWNLOADING
+                                item._DownloadFichier__resume_event.clear()
+                            else:
+                                raise TimeoutError("Resume timeout exceeded")
+
+                        # Write chunk and update progress
+                        output.write(chunk)
+                        total_bytes_received += len(chunk)
+                        item.taille_recue = total_bytes_received
+                        chunks_done += 1
+
+                        # Update progress bar
+                        if self.__progress_wrapper:
+                            self.__update_progress("transfer", len(chunk))
+                        elif self.__progress_manager:
+                            self.__update_progress("transfer", len(chunk))
+
+                    # Task 6: Log successful resume completion
+                    if is_resume and total_bytes_received == item.taille_chiffree:
+                        self.__logger.info(
+                            "Successfully resumed download for %s" % item.nom
+                        )
+
+                    # Task 5: Clear last_error on successful download completion
+                    if item.last_error is not None:
+                        item.last_error = None
+
+                # Download completed successfully
+                # Task 5: Transition state based on download scenario
+                if is_resume:
+                    item.state = DownloadState.RESUMING
+                else:
+                    item.state = DownloadState.DOWNLOADING
+
+                # Task 5: Clear last_error and reset retry_count on successful completion
+                if item.last_error is not None:
+                    item.last_error = None
+                item.retry_count = 0
+
+                break
+
+            except DownloadRetryException as e:
+                # Special case: Server doesn't support Range requests
+                item.last_error = e
+                if path_reception_work.exists():
+                    path_reception_work.unlink()
+                # Restart fresh download (no retry, just restart)
+                item.state = DownloadState.DOWNLOADING
+                item.retry_count = 0
+                is_resume = False
+                headers = {}
+                total_bytes_received = 0
+                retry_count = max_retries  # Exit retry loop, restart fresh
+
+            except (requests.RequestException, OSError, TimeoutError) as e:
+                # Connection error or other download failure
+                item.last_error = e
+                retry_count += 1
+
+                # Task 5: Update state and clear errors on resume scenarios
+                if retry_count < max_retries:
+                    item.state = DownloadState.RETRYING
+                    self.__logger.warning(
+                        "Download failed, retrying (%d/%d)... Error: %s"
+                        % (retry_count, max_retries, e)
+                    )
+
+                    # Retry every 15 seconds with exponential backoff
+                    wait_time = 15 * (2 ** (retry_count - 1))
+                    time.sleep(min(wait_time, 120))  # Cap at 2 minutes
+
+                    # Clear pause/resume events for retry
+                    item._DownloadFichier__pause_event.clear()
+                    item._DownloadFichier__resume_event.set()
+
+                    # Update total_bytes_received to include what we received
+                    # For retry, we need to recalculate based on existing file
+                    if path_reception_work.exists():
+                        total_bytes_received = path_reception_work.stat().st_size
+                        headers["Range"] = "bytes=%d-" % total_bytes_received
+                else:
+                    # Too many retries, mark as failed
+                    item.state = DownloadState.FAILED
+                    if path_reception_work.exists():
+                        path_reception_work.unlink()
+                    raise DownloadFailedException(
+                        "Download failed after %d retries: %s" % (retry_count, e),
+                        item.last_error,
+                    )
+
+        # Task 4: Case B - Skip download if file already complete
+        if is_resume and total_bytes_received >= item.taille_chiffree:
+            # File was already complete, skip download phase
+            self.__logger.info(
+                "File already complete, proceeding directly to decryption"
+            )
+            item.state = DownloadState.DOWNLOADING
+        self.__logger.debug(
+            "Download fichier %s complete, dechiffrage en cours" % path_reception_work
+        )
+
+        # Transition progress bar from download to decrypt phase
+        if self.__progress_wrapper:
+            if hasattr(self.__progress_wrapper, "transition_to_decrypt"):
+                self.__progress_wrapper.transition_to_decrypt()
+            else:
+                self.__progress_wrapper.transition_to_encrypt_phase(
+                    total=item.taille_chiffree, desc="Decrypting"
+                )
 
         # Check for cancellation before decryption
         if item.is_cancelled():
@@ -958,6 +1144,8 @@ class Downloader:
         item.download_complete.set()
 
         # Remove from active downloads
+        self._remove_completed_download(item)
+
         self._remove_completed_download(item)
 
 
