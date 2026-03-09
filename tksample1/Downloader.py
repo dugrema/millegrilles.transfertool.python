@@ -1,6 +1,7 @@
 import logging
 import pathlib
 import warnings
+from enum import Enum, auto
 from threading import Event, Lock, Thread
 from typing import Optional, Union
 from urllib import parse
@@ -12,6 +13,11 @@ from requests import HTTPError
 from wakepy import keep
 
 from tksample1.AuthUsager import Authentification
+from tksample1.exceptions import (
+    DownloadFailedException,
+    DownloadPausedException,
+    DownloadRetryException,
+)
 from tksample1.Navigation import sync_collection
 from tksample1.ProgressBar import DownloadProgressBar
 from tksample1.ProgressManager import ProgressManager
@@ -27,6 +33,19 @@ warnings.filterwarnings(
     message="Unverified HTTPS request",
     category=urllib3.exceptions.InsecureRequestWarning,
 )
+
+
+class DownloadState(Enum):
+    """Enum representing the state of a download."""
+
+    IDLE = auto()
+    DOWNLOADING = auto()
+    PAUSED = auto()
+    RESUMING = auto()
+    RETRYING = auto()
+    COMPLETED = auto()
+    CANCELLED = auto()
+    FAILED = auto()
 
 
 class CancelledDownloadException(Exception):
@@ -62,9 +81,24 @@ class DownloadFichier:
         self.taille_recue = 0
         self.taille_dechiffree = 0
 
+        # Phase 1: State tracking for pause/resume
+        self.state = DownloadState.IDLE
+        self.__pause_event = Event()
+        self.__resume_event = Event()
+        self.retry_count = 0
+        self.last_error: Optional[Exception] = None
+        self.can_resume = not inline  # Inline mode cannot be paused
+        self.partial_download_path: Optional[pathlib.Path] = None
+
     def cancel(self):
-        """Cancel the download."""
+        """Cancel the download and update state."""
         self.__cancel_event.set()
+        if self.state not in (
+            DownloadState.COMPLETED,
+            DownloadState.CANCELLED,
+            DownloadState.FAILED,
+        ):
+            self.state = DownloadState.CANCELLED
 
     def is_cancelled(self):
         """Check if the download has been cancelled."""
@@ -80,6 +114,32 @@ class DownloadFichier:
     @property
     def tuuid(self):
         return self.__info["tuuid"]
+
+    def pause(self) -> bool:
+        """Pause the download. Returns True if pause was successful."""
+        if not self.can_be_paused():
+            return False
+        if self.state == DownloadState.DOWNLOADING:
+            self.state = DownloadState.PAUSED
+            self.__pause_event.set()
+            return True
+        return False
+
+    def resume(self) -> bool:
+        """Resume a paused download. Returns True if resume was successful."""
+        if self.state == DownloadState.PAUSED:
+            self.state = DownloadState.RESUMING
+            self.__resume_event.set()
+            return True
+        return False
+
+    def is_paused(self) -> bool:
+        """Check if the download is paused."""
+        return self.state == DownloadState.PAUSED
+
+    def can_be_paused(self) -> bool:
+        """Check if this download can be paused."""
+        return self.can_resume and self.state == DownloadState.DOWNLOADING
 
 
 class DownloadRepertoire:
