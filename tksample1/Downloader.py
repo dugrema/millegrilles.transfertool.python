@@ -164,9 +164,22 @@ class DownloadRepertoire:
         self.total_files = 0  # Total number of files in directory tree
         self.completed_files = 0  # Number of files completed
 
+        # Phase 4: State tracking for pause/resume (directory downloads)
+        self.state = DownloadState.IDLE
+        self.__pause_event = Event()
+        self.__resume_event = Event()
+        self.retry_count = 0
+        self.last_error: Optional[Exception] = None
+
     def cancel(self):
         """Cancel the directory download."""
-        self.__cancel_event.set()
+        if self.state not in (
+            DownloadState.COMPLETED,
+            DownloadState.CANCELLED,
+            DownloadState.FAILED,
+        ):
+            self.state = DownloadState.CANCELLED
+            self.__cancel_event.set()
 
     def is_cancelled(self):
         """Check if the download has been cancelled."""
@@ -186,6 +199,32 @@ class DownloadRepertoire:
     def preparer_taille(self, connexion):
         # connexion.call()  # TODO Charger stats du repertoire pour obtenir taille totale
         pass
+
+    def pause(self) -> bool:
+        """Pause the directory download. Returns True if pause was successful."""
+        if not self.can_be_paused():
+            return False
+        if self.state == DownloadState.DOWNLOADING:
+            self.state = DownloadState.PAUSED
+            self.__pause_event.set()
+            return True
+        return False
+
+    def resume(self) -> bool:
+        """Resume a paused directory download. Returns True if resume was successful."""
+        if self.state == DownloadState.PAUSED:
+            self.state = DownloadState.RESUMING
+            self.__resume_event.set()
+            return True
+        return False
+
+    def is_paused(self) -> bool:
+        """Check if the directory download is paused."""
+        return self.state == DownloadState.PAUSED
+
+    def can_be_paused(self) -> bool:
+        """Check if this directory download can be paused."""
+        return self.state == DownloadState.DOWNLOADING
 
 
 class Downloader:
@@ -276,6 +315,73 @@ class Downloader:
                         * 100,
                     )
                     self.__progress_manager.update_download_decrypt(filename, progress)
+
+    def _check_pause_and_wait(self, download_item, timeout_seconds=300):
+        """Check if download is paused and wait for resume.
+
+        Args:
+            download_item: DownloadFichier or DownloadRepertoire instance
+            timeout_seconds: Maximum time to wait for resume (default 5 minutes)
+
+        Raises:
+            CancelledDownloadException: If download was cancelled during wait
+        """
+        if isinstance(download_item, DownloadRepertoire):
+            # Check pause event for directory downloads
+            while download_item.is_paused():
+                # Check for cancellation during wait
+                if download_item.is_cancelled():
+                    raise CancelledDownloadException()
+
+                # Wait for resume signal with timeout
+                # Use getattr to access private attribute (workaround for type checker)
+                resume_event = getattr(
+                    download_item, "_DownloadRepertoire__resume_event", None
+                )
+                if resume_event is not None:
+                    resumed = resume_event.wait(timeout=5.0)
+                    if not resumed:
+                        # Timeout elapsed, check again if still paused
+                        if download_item.is_paused():
+                            self.__logger.warning(
+                                "Pause timeout reached after %d seconds, "
+                                "checking if still paused...",
+                                timeout_seconds,
+                            )
+                            timeout_seconds -= 5
+                            if timeout_seconds <= 0:
+                                self.__logger.error(
+                                    "Max pause timeout reached, cancelling download"
+                                )
+                                raise CancelledDownloadException()
+
+                    # Reset resume event after resuming
+                    resume_event.clear()
+                    download_item.state = DownloadState.DOWNLOADING
+                    break
+                else:
+                    # Fallback if resume_event is not accessible
+                    break
+
+    def _propagate_pause_to_children(self, parent_item: DownloadRepertoire):
+        """Pause all child downloads when parent directory pauses.
+
+        Args:
+            parent_item: Parent DownloadRepertoire instance being paused
+        """
+        # This method will be used by GUI to pause all nested downloads
+        # when a directory download is paused
+        pass
+
+    def _propagate_resume_to_children(self, parent_item: DownloadRepertoire):
+        """Resume all child downloads when parent directory resumes.
+
+        Args:
+            parent_item: Parent DownloadRepertoire instance being resumed
+        """
+        # This method will be used by GUI to resume all nested downloads
+        # when a directory download is resumed
+        pass
 
     def quit(self):
         self.__download_pret.set()
@@ -575,6 +681,9 @@ class Downloader:
         if item.is_cancelled():
             raise CancelledDownloadException()
 
+        # Phase 4: Set state to DOWNLOADING
+        item.state = DownloadState.DOWNLOADING
+
         # Pre-calculate total size and file count
         total_size, total_files = self._calculate_directory_size(
             {"tuuid": tuuid, "metadata": {"nom": item.nom}}, self.__connexion
@@ -600,10 +709,18 @@ class Downloader:
         path_destination.mkdir(exist_ok=True)
 
         try:
+            # Phase 4: Check pause before iterating through directory contents
+            self._check_pause_and_wait(
+                item, 300
+            )  # 5-minute timeout for directory download
+
             for t in rep.fichiers:
                 # Check for cancellation before processing each item
                 if item.is_cancelled():
                     raise CancelledDownloadException()
+
+                # Phase 4: Check pause before processing each file/subdirectory
+                self._check_pause_and_wait(item, 300)  # 5-minute timeout per item
 
                 type_node = t["type_node"]
                 if type_node == "Fichier":
@@ -696,6 +813,9 @@ class Downloader:
                             self.__progress_manager.update_download_decrypt(
                                 item.nom, min(100.0, decrypt_progress)
                             )
+
+            # Phase 4: Set state to COMPLETED
+            item.state = DownloadState.COMPLETED
 
             # Mark directory download as complete
             item.download_complete.set()
