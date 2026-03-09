@@ -12,7 +12,9 @@ Feature 2: Progress bars turn green upon completion.
 import logging
 import tkinter as tk
 from tkinter import ttk
-from typing import Optional
+from typing import Any, Dict, Optional
+
+from tksample1.Downloader import DownloadState
 
 # Progress bar color constants
 COLOR_IN_PROGRESS = "#3B82F6"  # Blue - active transfer
@@ -40,6 +42,10 @@ class TransferFrame(tk.Frame):
 
         self.__logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
         self.__transfer_handler = transfer_handler
+
+        # Button state tracking - maps tuuid to dict of button references
+        self.__download_button_states: Dict[str, Dict[str, Any]] = {}
+        self.__upload_button_states: Dict[str, Dict[str, Any]] = {}
 
         # Build the UI
         self._create_ui()
@@ -246,6 +252,8 @@ class TransferFrame(tk.Frame):
             download_decrypt_color_callback=self.on_download_decrypt_color,
             upload_encrypt_color_callback=self.on_upload_encrypt_color,
             upload_transfer_color_callback=self.on_upload_transfer_color,
+            # State callbacks for pause/resume (Feature 5)
+            download_state_callback=self.on_download_state_change,
         )
 
     def _set_progress_color(self, pct_label: Optional[ttk.Label], is_complete: bool):
@@ -273,6 +281,19 @@ class TransferFrame(tk.Frame):
         self.__download_decrypt_label.set(filename)
         self.__download_decrypt_var.set(progress)
         self.__download_decrypt_pct_var.set(f"{progress:.1f}%")
+
+    def on_download_state_change(self, filename: str, state: str):
+        """Callback to update download state (pause/resume).
+
+        Args:
+            filename: Name of the file whose state changed
+            state: New state ('paused' or 'resumed')
+        """
+        # Rebuild the queue to update state indicators and button states
+        self._update_download_queue(
+            self.__transfer_handler.progress_manager.get_current_download(),
+            self.__transfer_handler.progress_manager.get_download_queue(),
+        )
 
     # === Upload Progress Callbacks ===
 
@@ -327,7 +348,7 @@ class TransferFrame(tk.Frame):
     # === Queue Update Methods ===
 
     def _update_download_queue(self, current: Optional[object], queue: list):
-        """Update the download queue display.
+        """Update the download queue display with pause/resume buttons.
 
         Args:
             current: Currently downloading file/directory
@@ -339,28 +360,144 @@ class TransferFrame(tk.Frame):
 
         # Build queue display
         if current:
-            current_label = tk.Label(
-                self.__download_queue_frame,
-                text=f"→ {getattr(current, 'nom', 'File')}",
-                foreground=COLOR_IN_PROGRESS,
-                font=("Helvetica", 10),
-            )
-            current_label.pack(anchor="w", pady=2)
+            self.__build_queue_item(current, is_current=True)
 
         for i, item in enumerate(queue):
-            label = tk.Label(
-                self.__download_queue_frame,
-                text=f"  • {getattr(item, 'nom', 'Item')} [{'INLINE' if getattr(item, 'inline', False) else '2PHASE'}]",
-                foreground=COLOR_IN_PROGRESS,
-                font=("Helvetica", 9),
-            )
-            label.pack(anchor="w", pady=1)
+            self.__build_queue_item(item, is_current=False)
 
         # Enable/disable cancel button based on active downloads
         if current or queue:
             self.__cancel_download_btn.configure(state="normal")
         else:
             self.__cancel_download_btn.configure(state="disabled")
+
+    def pause_download(self, tuuid: str):
+        """Pause a download by tuuid.
+
+        Args:
+            tuuid: The tuuid of the download to pause
+        """
+        if tuuid in self.__download_button_states:
+            self.__transfer_handler.pause_download(tuuid)
+            self._update_download_queue(
+                self.__transfer_handler.progress_manager.get_current_download(),
+                self.__transfer_handler.progress_manager.get_download_queue(),
+            )
+
+    def resume_download(self, tuuid: str):
+        """Resume a paused download by tuuid.
+
+        Args:
+            tuuid: The tuuid of the download to resume
+        """
+        if tuuid in self.__download_button_states:
+            self.__transfer_handler.resume_download(tuuid)
+            self._update_download_queue(
+                self.__transfer_handler.progress_manager.get_current_download(),
+                self.__transfer_handler.progress_manager.get_download_queue(),
+            )
+
+    def cancel_download(self, tuuid: str):
+        """Cancel a download by tuuid.
+
+        Args:
+            tuuid: The tuuid of the download to cancel
+        """
+        if tuuid in self.__download_button_states:
+            self.__transfer_handler.cancel_download(tuuid)
+            self._update_download_queue(
+                self.__transfer_handler.progress_manager.get_current_download(),
+                self.__transfer_handler.progress_manager.get_download_queue(),
+            )
+
+    def __build_queue_item(self, item: object, is_current: bool = False):
+        """Build a queue item row with filename, mode, and control buttons.
+
+        Args:
+            item: Download item (DownloadFichier or DownloadRepertoire)
+            is_current: Whether this is the currently active download
+        """
+        # Create container frame for the row
+        row_frame = ttk.Frame(self.__download_queue_frame)
+        row_frame.pack(fill="x", pady=1)
+
+        # Get item properties
+        filename = getattr(item, "nom", "File")
+        tuuid = getattr(item, "tuuid", str(id(item)))
+        inline = getattr(item, "inline", False)
+        mode_label = "INLINE" if inline else "2PHASE"
+
+        # Prefix for current download
+        prefix = "→ " if is_current else "  • "
+
+        # Filename and mode label
+        # Add state indicator
+        state = getattr(item, "state", None)
+        if state == DownloadState.PAUSED:
+            text = f"{prefix}{filename} [{mode_label}] - PAUSED"
+        elif state == DownloadState.RETRYING:
+            text = f"{prefix}{filename} [{mode_label}] - RETRYING"
+        else:
+            text = f"{prefix}{filename} [{mode_label}]"
+
+        label = tk.Label(
+            row_frame,
+            text=text,
+            foreground=COLOR_IN_PROGRESS
+            if state != DownloadState.PAUSED
+            else "#6B7280",
+            font=("Helvetica", 9 + (2 if is_current else 0)),
+        )
+        label.pack(side="left", fill="x", expand=True)
+
+        # Determine if pause is allowed (only for 2-phase downloads in DOWNLOADING state)
+        can_pause = False
+        if hasattr(item, "can_be_paused") and callable(
+            getattr(item, "can_be_paused", None)
+        ):
+            can_pause = item.can_be_paused()  # type: ignore
+        elif hasattr(item, "state") and hasattr(item, "can_resume"):
+            can_pause = (
+                getattr(item, "state") == DownloadState.DOWNLOADING
+                and getattr(item, "can_resume", False)
+                and not inline
+            )
+
+        is_paused = state == DownloadState.PAUSED
+
+        # Pause button
+        pause_btn = ttk.Button(
+            row_frame,
+            text="⏸️ Pause",
+            command=lambda t=tuuid: self.pause_download(t),
+            state="disabled" if not can_pause else "normal",
+        )
+        pause_btn.pack(side="right", padx=(0, 2))
+
+        # Resume button
+        resume_btn = ttk.Button(
+            row_frame,
+            text="▶ Resume",
+            command=lambda t=tuuid: self.resume_download(t),
+            state="normal" if is_paused else "disabled",
+        )
+        resume_btn.pack(side="right", padx=(0, 2))
+
+        # Cancel button
+        cancel_btn = ttk.Button(
+            row_frame,
+            text="✖ Cancel",
+            command=lambda t=tuuid: self.cancel_download(t),
+        )
+        cancel_btn.pack(side="right")
+
+        # Store button references for later updates
+        self.__download_button_states[tuuid] = {
+            "pause": pause_btn,
+            "resume": resume_btn,
+            "cancel": cancel_btn,
+            "item": item,
+        }
 
     def _update_upload_queue(self, current: Optional[object], queue: list):
         """Update the upload queue display.
@@ -375,9 +512,14 @@ class TransferFrame(tk.Frame):
 
         # Build queue display
         if current:
+            filename = (
+                getattr(getattr(current, "path", None), "name", "File")
+                if hasattr(current, "path")
+                else "File"
+            )
             current_label = tk.Label(
                 self.__upload_queue_frame,
-                text=f"→ {getattr(current, 'path', None) and (getattr(current.path, 'name', 'File') if hasattr(current, 'path') else 'File') or 'File'}",
+                text=f"→ {filename}",
                 foreground=COLOR_IN_PROGRESS,
                 font=("Helvetica", 10),
             )

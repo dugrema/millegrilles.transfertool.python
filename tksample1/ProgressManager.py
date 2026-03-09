@@ -38,6 +38,9 @@ class ProgressManager:
         self.__download_decrypt_callback: Optional[Callable[[str, float], None]] = None
         self.__download_reset_callback: Optional[Callable[[str], None]] = None
 
+        # Callbacks for download state updates (pause/resume)
+        self.__download_state_callback: Optional[Callable[[str, str], None]] = None
+
         # Callbacks for upload progress updates
         self.__upload_encrypt_callback: Optional[Callable[[str, float], None]] = None
         self.__upload_transfer_callback: Optional[Callable[[str, float], None]] = None
@@ -85,6 +88,8 @@ class ProgressManager:
         download_decrypt_color_callback: Optional[Callable[[str, bool], None]] = None,
         upload_encrypt_color_callback: Optional[Callable[[str, bool], None]] = None,
         upload_transfer_color_callback: Optional[Callable[[str, bool], None]] = None,
+        # Feature 5: State callbacks (pause/resume)
+        download_state_callback: Optional[Callable[[str, str], None]] = None,
     ):
         """Register callback functions for progress updates.
 
@@ -125,6 +130,10 @@ class ProgressManager:
                 self.__upload_encrypt_color_callback = upload_encrypt_color_callback
             if upload_transfer_color_callback is not None:
                 self.__upload_transfer_color_callback = upload_transfer_color_callback
+
+            # Feature 5: State callbacks (pause/resume)
+            if download_state_callback is not None:
+                self.__download_state_callback = download_state_callback
 
     def _invoke_callback(self, callback: Callable, *args):
         """Invoke callback in a thread-safe manner using tkinter's after().
@@ -294,6 +303,24 @@ class ProgressManager:
         """
         if self.__download_reset_callback is not None:
             self._invoke_callback(self.__download_reset_callback, filename)
+
+    def set_download_paused(self, filename: str):
+        """Notify GUI that a download has been paused.
+
+        Args:
+            filename: Name of the file that was paused
+        """
+        if self.__download_state_callback is not None:
+            self._invoke_callback(self.__download_state_callback, filename, "paused")
+
+    def set_download_resumed(self, filename: str):
+        """Notify GUI that a download has been resumed.
+
+        Args:
+            filename: Name of the file that was resumed
+        """
+        if self.__download_state_callback is not None:
+            self._invoke_callback(self.__download_state_callback, filename, "resumed")
 
     def set_download_transfer_complete(self, filename: str):
         """Set download transfer progress to 100% before starting decryption.

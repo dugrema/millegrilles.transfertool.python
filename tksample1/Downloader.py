@@ -498,6 +498,38 @@ class Downloader:
                 return True
         return False
 
+    def pause_download(self, tuuid: str):
+        """Pause a download by tuuid.
+
+        Args:
+            tuuid: The tuuid of the download to pause
+
+        Returns:
+            True if pause was successful, False if download not found or cannot be paused
+        """
+        with self.__active_downloads_lock:
+            for download_item in self.__active_downloads:
+                if getattr(download_item, "tuuid", None) == tuuid:
+                    if hasattr(download_item, "pause"):
+                        return download_item.pause()
+        return False
+
+    def resume_download(self, tuuid: str):
+        """Resume a paused download by tuuid.
+
+        Args:
+            tuuid: The tuuid of the download to resume
+
+        Returns:
+            True if resume was successful, False if download not found or not paused
+        """
+        with self.__active_downloads_lock:
+            for download_item in self.__active_downloads:
+                if getattr(download_item, "tuuid", None) == tuuid:
+                    if hasattr(download_item, "resume"):
+                        return download_item.resume()
+        return False
+
     def cancel_all_downloads(self):
         """Cancel all active downloads."""
         with self.__active_downloads_lock:
@@ -1103,11 +1135,21 @@ class Downloader:
                             output.flush()
                             item.state = DownloadState.PAUSED
 
+                            # Notify ProgressManager of pause state
+                            if self.__progress_manager:
+                                self.__progress_manager.set_download_paused(item.nom)
+
                             # Wait for resume signal (5 minute timeout)
                             item._DownloadFichier__resume_event.wait(timeout=300)
                             if item._DownloadFichier__resume_event.is_set():
                                 item.state = DownloadState.DOWNLOADING
                                 item._DownloadFichier__resume_event.clear()
+
+                                # Notify ProgressManager of resume
+                                if self.__progress_manager:
+                                    self.__progress_manager.set_download_resumed(
+                                        item.nom
+                                    )
                             else:
                                 raise TimeoutError("Resume timeout exceeded")
 

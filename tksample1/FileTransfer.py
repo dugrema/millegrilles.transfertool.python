@@ -93,8 +93,29 @@ class TransferHandler:
         if downloader_progress_wrapper is not None:
             self.downloader.progress_wrapper = downloader_progress_wrapper
 
-    def creer_collection(self, nom: str, cuuid_parent: Optional[str] = None) -> str:
-        return self.uploader.creer_collection(nom, cuuid_parent)
+    def pause_download(self, tuuid: str):
+        """Pause a download by tuuid.
+
+        Args:
+            tuuid: The tuuid of the download to pause
+        """
+        return self.downloader.pause_download(tuuid)
+
+    def resume_download(self, tuuid: str):
+        """Resume a paused download by tuuid.
+
+        Args:
+            tuuid: The tuuid of the download to resume
+        """
+        return self.downloader.resume_download(tuuid)
+
+    def cancel_download(self, tuuid: str):
+        """Cancel a download by tuuid.
+
+        Args:
+            tuuid: The tuuid of the download to cancel
+        """
+        return self.downloader.cancel_download(tuuid)
 
     def thread_status(self):
         """
