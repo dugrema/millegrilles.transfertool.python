@@ -909,7 +909,7 @@ class CLIHandler:
                 mode_indicator = "[INLINE]" if inline else "[2PHASE]"
                 print(f"Downloading directory '{filename}' {mode_indicator}...")
                 download_item = self.__transfer_handler.ajouter_download_repertoire(
-                    target_item, self.__local_dir
+                    target_item, self.__local_dir, inline=inline
                 )
                 try:
                     download_item.wait()

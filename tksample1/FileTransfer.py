@@ -66,8 +66,12 @@ class TransferHandler:
             download, destination, inline=inline
         )
 
-    def ajouter_download_repertoire(self, repertoire, destination=None):
-        return self.downloader.ajouter_download_repertoire(repertoire, destination)
+    def ajouter_download_repertoire(
+        self, repertoire, destination=None, inline: bool = False
+    ):
+        return self.downloader.ajouter_download_repertoire(
+            repertoire, destination, inline=inline
+        )
 
     def ajouter_upload(self, cuuid_parent: str, path_upload: str):
         return self.uploader.ajouter_upload(cuuid_parent, path_upload)

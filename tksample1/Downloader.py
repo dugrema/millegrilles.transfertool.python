@@ -83,7 +83,7 @@ class DownloadFichier:
 
 
 class DownloadRepertoire:
-    def __init__(self, repertoire, destination: pathlib.Path):
+    def __init__(self, repertoire, destination: pathlib.Path, inline: bool = False):
         self.__info = repertoire
         metadata = repertoire["metadata"]
         self.cuuid = repertoire["tuuid"]
@@ -92,6 +92,7 @@ class DownloadRepertoire:
         self.__cancel_event = Event()
         self.repertoire = None
         self.destination = destination
+        self.inline = inline
 
         # Progress tracking attributes for GUI
         self.taille_recue = 0  # Cumulative received bytes
@@ -272,12 +273,14 @@ class Downloader:
 
         return download_item
 
-    def ajouter_download_repertoire(self, repertoire, destination=None):
+    def ajouter_download_repertoire(
+        self, repertoire, destination=None, inline: bool = False
+    ):
         destination = destination or self.__connexion.download_path
         if destination.exists() is False:
             destination.mkdir()
 
-        download_item = DownloadRepertoire(repertoire, destination)
+        download_item = DownloadRepertoire(repertoire, destination, inline)
         self.__download_queue.append(download_item)
         self.__download_pret.set()
 
@@ -486,7 +489,9 @@ class Downloader:
                 type_node = t["type_node"]
                 if type_node == "Fichier":
                     try:
-                        download_fichier = DownloadFichier(t, path_destination)
+                        download_fichier = DownloadFichier(
+                            t, path_destination, item.inline
+                        )
                     except KeyError:
                         self.__logger.warning("Cle fichier manquante, skip : %s" % t)
                     else:
@@ -520,7 +525,9 @@ class Downloader:
                             pass  # OK
                 else:
                     # Download recursif des sous-repertoires
-                    download_repertoire = DownloadRepertoire(t, path_destination)
+                    download_repertoire = DownloadRepertoire(
+                        t, path_destination, item.inline
+                    )
                     self.download_repertoire(download_repertoire)
 
             # Mark directory download as complete

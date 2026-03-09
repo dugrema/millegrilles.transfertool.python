@@ -87,7 +87,7 @@ class Navigation:
         if tuuid_node["type_node"] == "Fichier":
             self.transfer_handler.ajouter_download_fichier(tuuid_node, inline=inline)
         else:
-            self.transfer_handler.ajouter_download_repertoire(tuuid_node)
+            self.transfer_handler.ajouter_download_repertoire(tuuid_node, inline=inline)
 
     def upload_fichier(self, fichier):
         """Wrapper to upload a file"""
