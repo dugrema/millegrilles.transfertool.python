@@ -131,6 +131,7 @@ class DownloadFichier:
         if self.state == DownloadState.PAUSED:
             self.state = DownloadState.RESUMING
             self.__resume_event.set()
+            self.__pause_event.clear()
             return True
         return False
 
@@ -215,6 +216,7 @@ class DownloadRepertoire:
         if self.state == DownloadState.PAUSED:
             self.state = DownloadState.RESUMING
             self.__resume_event.set()
+            self.__pause_event.clear()
             return True
         return False
 
@@ -247,7 +249,7 @@ class Downloader:
             Union[DownloadFichier, DownloadRepertoire]
         ] = None
         self.__event_download_in_progress = Event()
-        self.__navigation = None
+
         self.__https_session: Optional[requests.Session] = None
         self.__progress_wrapper = (
             progress_wrapper  # CLI progress bar wrapper (deprecated)
@@ -429,14 +431,10 @@ class Downloader:
 
         # Add to ProgressManager queue for GUI display
         if self.__progress_manager:
-            self.__progress_manager.add_to_download_queue(
-                {
-                    "filename": download_item.nom,
-                    "size": download_item.taille_chiffree,
-                    "tuuid": download_item.tuuid,
-                    "inline": download_item.inline,
-                }
-            )
+            # Pass the object directly, not a dict
+            self.__progress_manager.add_to_download_queue(download_item)
+            # Initialize state to DOWNLOADING
+            download_item.state = DownloadState.DOWNLOADING
 
         # Notify TransferHandler to update UI
         if self.__transfer_handler:
@@ -461,9 +459,10 @@ class Downloader:
 
         # Add to ProgressManager queue for GUI display
         if self.__progress_manager:
-            self.__progress_manager.add_to_download_queue(
-                {"filename": download_item.nom, "size": 0, "tuuid": download_item.tuuid}
-            )
+            # Pass the object directly, not a dict
+            self.__progress_manager.add_to_download_queue(download_item)
+            # Initialize state to DOWNLOADING
+            download_item.state = DownloadState.DOWNLOADING
 
         # Notify TransferHandler to update UI
         if self.__transfer_handler:
@@ -483,19 +482,26 @@ class Downloader:
                 d for d in self.__active_downloads if not d.download_complete.is_set()
             ]
 
-    def cancel_download(self, download_item):
-        """Cancel a specific download.
+    def cancel_download(self, tuuid: str):
+        """Cancel a specific download by tuuid.
 
         Args:
-            download_item: DownloadFichier or DownloadRepertoire instance to cancel
+            tuuid: The tuuid of the download to cancel
 
         Returns:
             True if cancellation was initiated, False if download not found
         """
         with self.__active_downloads_lock:
-            if download_item in self.__active_downloads:
-                download_item.cancel()
-                return True
+            for download_item in self.__active_downloads:
+                if getattr(download_item, "tuuid", None) == tuuid:
+                    download_item.cancel()
+                    # Remove from ProgressManager queue
+                    if self.__progress_manager:
+                        self.__progress_manager.remove_from_download_queue(tuuid)
+                    # Remove from active downloads
+                    if download_item in self.__active_downloads:
+                        self.__active_downloads.remove(download_item)
+                    return True
         return False
 
     def pause_download(self, tuuid: str):
@@ -511,7 +517,13 @@ class Downloader:
             for download_item in self.__active_downloads:
                 if getattr(download_item, "tuuid", None) == tuuid:
                     if hasattr(download_item, "pause"):
-                        return download_item.pause()
+                        result = download_item.pause()
+                        # Update state in ProgressManager queue
+                        if self.__progress_manager and result:
+                            self.__progress_manager.update_download_queue_state(
+                                tuuid, DownloadState.PAUSED
+                            )
+                        return result
         return False
 
     def resume_download(self, tuuid: str):
@@ -527,7 +539,13 @@ class Downloader:
             for download_item in self.__active_downloads:
                 if getattr(download_item, "tuuid", None) == tuuid:
                     if hasattr(download_item, "resume"):
-                        return download_item.resume()
+                        result = download_item.resume()
+                        # Update state in ProgressManager queue
+                        if self.__progress_manager and result:
+                            self.__progress_manager.update_download_queue_state(
+                                tuuid, DownloadState.DOWNLOADING
+                            )
+                        return result
         return False
 
     def cancel_all_downloads(self):
@@ -577,8 +595,9 @@ class Downloader:
                             if self.__progress_manager and self.__download_en_cours:
                                 item_name = self.__download_en_cours.nom
                                 tuuid = self.__download_en_cours.tuuid
+                                # Pass the object directly, not a dict
                                 self.__progress_manager.set_current_download(
-                                    {"filename": item_name, "tuuid": tuuid}
+                                    self.__download_en_cours
                                 )
 
                             if isinstance(self.__download_en_cours, DownloadFichier):
@@ -730,9 +749,8 @@ class Downloader:
 
         # Set as current download in ProgressManager (directory level)
         if self.__progress_manager:
-            self.__progress_manager.set_current_download(
-                {"filename": item.nom, "tuuid": item.tuuid}
-            )
+            # Pass the object directly, not a dict
+            self.__progress_manager.set_current_download(item)
 
         rep = sync_collection(self.__connexion, tuuid)
 

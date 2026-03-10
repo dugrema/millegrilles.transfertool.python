@@ -58,6 +58,7 @@ class UploadRepertoire:
         parent: Optional[UploadRepertoire] = None,  # type: ignore[no-redef]
     ):
         self.__cuuid_parent = cuuid_parent
+        self.tuuid = self.__cuuid_parent  # For compatibility with ProgressManager
         self.__path_dir = path_dir
         self.__parent = parent
         self.taille = None
@@ -139,6 +140,7 @@ class UploadFichier:
         parent: Optional[UploadRepertoire] = None,  # type: ignore
     ):
         self.cuuid = cuuid
+        self.tuuid = self.cuuid  # For compatibility with ProgressManager
         self.__path_fichier = path_fichier
         self.__parent = parent
         self.taille = path_fichier.stat().st_size
@@ -391,15 +393,8 @@ class Uploader:
 
         # Add to ProgressManager queue for GUI display
         if self.__progress_manager:
-            file_size = (
-                upload_item.path.stat().st_size if not path_upload.is_dir() else 0
-            )
-            self.__progress_manager.add_to_upload_queue(
-                {
-                    "filename": upload_item.path.name,
-                    "size": file_size,
-                }
-            )
+            # Pass the object directly, not a dict
+            self.__progress_manager.add_to_upload_queue(upload_item)
 
         # Notify TransferHandler to update UI
         if self.__transfer_handler:
@@ -426,13 +421,9 @@ class Uploader:
 
                             # Set current upload in ProgressManager
                             if self.__progress_manager and self.__upload_en_cours:
-                                item_name = getattr(
-                                    self.__upload_en_cours,
-                                    "path",
-                                    pathlib.Path("unknown"),
-                                ).name
+                                # Pass the object directly, not a dict
                                 self.__progress_manager.set_current_upload(
-                                    {"filename": item_name}
+                                    self.__upload_en_cours
                                 )
                         except IndexError:
                             break

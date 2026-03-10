@@ -138,16 +138,19 @@ class TransferHandler:
             self.__transfer_dirty.clear()
             try:
                 if self.transfer_frame is not None:  # type: ignore
-                    # Get status
-                    status_download, download_en_cours, q_download = (
-                        self.downloader.download_status()
-                    )
-                    status_upload, upload_en_cours, q_upload = (
-                        self.uploader.upload_status()
-                    )
+                    # Get status from ProgressManager for queue consistency
+                    download_en_cours = self.progress_manager.get_current_download()
+                    q_download = self.progress_manager.get_download_queue()
+                    upload_en_cours = self.progress_manager.get_current_upload()
+                    q_upload = self.progress_manager.get_upload_queue()
 
                     # Track whether we have active transfers
-                    previous_has_active = has_active_transfer
+                    has_active_transfer = (
+                        download_en_cours is not None
+                        or upload_en_cours is not None
+                        or len(q_download) > 0
+                        or len(q_upload) > 0
+                    )
                     has_active_transfer = (
                         download_en_cours is not None
                         or upload_en_cours is not None
@@ -164,6 +167,18 @@ class TransferHandler:
                         upload_comp = upload_en_cours
                         upload_changed = True
 
+                    def _get_item_identifier(item):
+                        """Get identifier from download or upload object."""
+                        tuuid = getattr(item, "tuuid", None)
+                        if tuuid:
+                            return tuuid
+                        # Fallback to name attributes based on object type
+                        if hasattr(item, "nom"):
+                            return item.nom
+                        elif hasattr(item, "path"):
+                            return item.path.name
+                        return str(item)
+
                     # Compare upload queue by length and content
                     if not upload_changed:
                         # Handle initial state when upload_q_comp is None
@@ -172,13 +187,12 @@ class TransferHandler:
                             upload_q_comp = q_upload.copy()
                         elif upload_q_comp is not None:
                             # Compare based on identifying attributes, not object references
+
                             upload_tuuids = [
-                                getattr(item, "tuuid", None) or item.path.name
-                                for item in upload_q_comp
+                                _get_item_identifier(item) for item in upload_q_comp
                             ]
                             current_upload_tuuids = [
-                                getattr(item, "tuuid", None) or item.path.name
-                                for item in q_upload
+                                _get_item_identifier(item) for item in q_upload
                             ]
                             if len(upload_q_comp) != len(q_upload):
                                 upload_changed = True
@@ -201,12 +215,10 @@ class TransferHandler:
                         elif download_q_comp is not None:
                             # Compare based on identifying attributes, not object references
                             download_tuuids = [
-                                getattr(item, "tuuid", None) or item.nom
-                                for item in download_q_comp
+                                _get_item_identifier(item) for item in download_q_comp
                             ]
                             current_download_tuuids = [
-                                getattr(item, "tuuid", None) or item.nom
-                                for item in q_download
+                                _get_item_identifier(item) for item in q_download
                             ]
                             if len(download_q_comp) != len(q_download):
                                 download_changed = True

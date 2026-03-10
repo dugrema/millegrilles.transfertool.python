@@ -421,10 +421,17 @@ class TransferFrame(tk.Frame):
         row_frame = ttk.Frame(self.__download_queue_frame)
         row_frame.pack(fill="x", pady=1)
 
-        # Get item properties
-        filename = getattr(item, "nom", "File")
-        tuuid = getattr(item, "tuuid", str(id(item)))
-        inline = getattr(item, "inline", False)
+        # Get item properties - handle both dict and object
+        if isinstance(item, dict):
+            filename = item.get("filename", "File")
+            tuuid = item.get("tuuid", str(id(item)))
+            inline = item.get("inline", False)
+            state = item.get("state", None)
+        else:
+            filename = getattr(item, "nom", "File")
+            tuuid = getattr(item, "tuuid", str(id(item)))
+            inline = getattr(item, "inline", False)
+            state = getattr(item, "state", None)
         mode_label = "INLINE" if inline else "2PHASE"
 
         # Prefix for current download
@@ -432,7 +439,6 @@ class TransferFrame(tk.Frame):
 
         # Filename and mode label
         # Add state indicator
-        state = getattr(item, "state", None)
         if state == DownloadState.PAUSED:
             text = f"{prefix}{filename} [{mode_label}] - PAUSED"
         elif state == DownloadState.RETRYING:

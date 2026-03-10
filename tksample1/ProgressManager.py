@@ -155,17 +155,19 @@ class ProgressManager:
             callback(*args)
 
     # Download queue management
-    def add_to_download_queue(self, item: dict):
+    def add_to_download_queue(self, item):
         """Add an item to the download queue.
 
         Args:
-            item: Dictionary containing 'filename', 'size', 'tuuid', and optionally 'inline'
+            item: DownloadFichier or DownloadRepertoire object
         """
         with self.__lock:
             self.__download_queue.append(item)
             # Track inline mode for this download
-            if "tuuid" in item:
-                self.__download_queue_inline[item["tuuid"]] = item.get("inline", False)
+            if hasattr(item, "tuuid"):
+                self.__download_queue_inline[item.tuuid] = getattr(
+                    item, "inline", False
+                )
 
     def remove_from_download_queue(self, tuuid: str):
         """Remove an item from the download queue by tuuid.
@@ -175,17 +177,19 @@ class ProgressManager:
         """
         with self.__lock:
             self.__download_queue = [
-                item for item in self.__download_queue if item.get("tuuid") != tuuid
+                item
+                for item in self.__download_queue
+                if getattr(item, "tuuid", None) != tuuid
             ]
             # Also remove inline tracking
             if tuuid in self.__download_queue_inline:
                 del self.__download_queue_inline[tuuid]
 
-    def set_current_download(self, item: Optional[dict]):
+    def set_current_download(self, item):
         """Set the current download in progress.
 
         Args:
-            item: Dictionary containing 'filename', 'size', and 'tuuid'
+            item: DownloadFichier or DownloadRepertoire object (or None)
         """
         with self.__lock:
             self.__current_download = item
@@ -221,11 +225,11 @@ class ProgressManager:
             return self.__download_queue_inline.get(tuuid, False)
 
     # Upload queue management
-    def add_to_upload_queue(self, item: dict):
+    def add_to_upload_queue(self, item):
         """Add an item to the upload queue.
 
         Args:
-            item: Dictionary containing 'filename', 'size', and 'tuuid'
+            item: UploadFichier or UploadRepertoire object
         """
         with self.__lock:
             self.__upload_queue.append(item)
@@ -238,14 +242,16 @@ class ProgressManager:
         """
         with self.__lock:
             self.__upload_queue = [
-                item for item in self.__upload_queue if item.get("tuuid") != tuuid
+                item
+                for item in self.__upload_queue
+                if getattr(item, "tuuid", None) != tuuid
             ]
 
-    def set_current_upload(self, item: Optional[dict]):
+    def set_current_upload(self, item):
         """Set the current upload in progress.
 
         Args:
-            item: Dictionary containing 'filename', 'size', and 'tuuid'
+            item: UploadFichier or UploadRepertoire object (or None)
         """
         with self.__lock:
             self.__current_upload = item
@@ -321,6 +327,27 @@ class ProgressManager:
         """
         if self.__download_state_callback is not None:
             self._invoke_callback(self.__download_state_callback, filename, "resumed")
+
+    def update_download_queue_state(self, tuuid: str, state):
+        """Update the state field of a download queue item.
+
+        Sets the object's state attribute (not a dict key).
+
+        Args:
+            tuuid: The tuuid of the download item
+            state: The new state (DownloadState enum value)
+        """
+        with self.__lock:
+            for item in self.__download_queue:
+                if getattr(item, "tuuid", None) == tuuid:
+                    item.state = state  # Set object attribute
+                    break
+            # Also update current download if it matches
+            if (
+                self.__current_download
+                and getattr(self.__current_download, "tuuid", None) == tuuid
+            ):
+                self.__current_download.state = state  # Set object attribute
 
     def set_download_transfer_complete(self, filename: str):
         """Set download transfer progress to 100% before starting decryption.
