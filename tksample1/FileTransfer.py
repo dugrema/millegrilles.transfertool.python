@@ -60,17 +60,17 @@ class TransferHandler:
         self.__transfer_dirty.set()
 
     def ajouter_download_fichier(
-        self, download, destination=None, inline: bool = False
+        self, download, destination=None, down1pass: bool = False
     ) -> DownloadFichier:
         return self.downloader.ajouter_download_fichier(
-            download, destination, inline=inline
+            download, destination, down1pass=down1pass
         )
 
     def ajouter_download_repertoire(
-        self, repertoire, destination=None, inline: bool = False
+        self, repertoire, destination=None, down1pass: bool = False
     ):
         return self.downloader.ajouter_download_repertoire(
-            repertoire, destination, inline=inline
+            repertoire, destination, down1pass=down1pass
         )
 
     def ajouter_upload(self, cuuid_parent: str, path_upload: str):

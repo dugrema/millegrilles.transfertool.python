@@ -72,12 +72,12 @@ class Navigation:
         self.__event_dirty.set()
         # The background thread will process this and update the UI
 
-    def ajouter_download(self, tuuid, inline: bool = False):
+    def ajouter_download(self, tuuid, down1pass: bool = False):
         """Wrapper to add a download
 
         Args:
             tuuid: The tuuid of the file or directory to download
-            inline: If True, download and decrypt in single pass (faster for small files)
+            down1pass: If True, download and decrypt in single pass (faster for small files)
         """
         if self.__repertoire is None:
             return
@@ -85,9 +85,13 @@ class Navigation:
             f for f in self.__repertoire.fichiers if f["tuuid"] == tuuid
         ].pop()
         if tuuid_node["type_node"] == "Fichier":
-            self.transfer_handler.ajouter_download_fichier(tuuid_node, inline=inline)
+            self.transfer_handler.ajouter_download_fichier(
+                tuuid_node, down1pass=down1pass
+            )
         else:
-            self.transfer_handler.ajouter_download_repertoire(tuuid_node, inline=inline)
+            self.transfer_handler.ajouter_download_repertoire(
+                tuuid_node, down1pass=down1pass
+            )
 
     def upload_fichier(self, fichier):
         """Wrapper to upload a file"""

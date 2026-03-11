@@ -52,10 +52,10 @@ python3 -m tksample1 --cli
 | `ls [path]` | List directory contents (current or specified path) |
 | `cd <path>` | Change directory (use `..` to go up one level) |
 | `pwd` | Print current working directory |
-| `get <remote> [--inline]` | Download file from server (use --inline for inline mode) |
+| `get <remote> [--1pass]` | Download file from server (use --1pass for 1-pass mode) |
 | `put <local> [remote]` | Upload file to server (optional remote filename) |
 | `mkdir <path>` | Create a new directory on the server |
-| `set download [--inline | --twophase]` | Set download mode (--inline: faster, not resumable; --twophase: default, resumable) |
+| `set download [--1pass | --2pass]` | Set download mode (--1pass: faster, not resumable; --2pass: default, resumable) |
 | `status` | Show current connection and configuration status |
 | `exit` or `quit` | Exit the CLI |
 
@@ -66,9 +66,9 @@ python3 -m tksample1 --cli
 - Only allows uploading files to the current directory
 - `get` distinguishes between downloading a single file or a directory
 - `put` distinguishes between uploading a single file or a directory
-- `get --inline` uses single-pass download/decrypt (faster, not resumable)
-- `set download --inline` enables inline mode for subsequent downloads
-- `set download --twophase` disables inline mode (default, resumable)
+- `get --1pass` uses 1-pass download/decrypt (faster, not resumable)
+- `set download --1pass` enables 1-pass mode for subsequent downloads
+- `set download --2pass` disables 1-pass mode (default, resumable)
 
 ## Folder Structure
 

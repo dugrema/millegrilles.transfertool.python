@@ -47,8 +47,8 @@ class CLIHandler:
             self.__auth.download_path
         )  # Initialize with download directory
 
-        # Inline mode flag for download operations (default: False for two-phase)
-        self.__inline_mode = False
+        # 1-pass mode flag for download operations (default: False for 2-pass)
+        self.__down1pass_mode = False
 
     def run(self):
         """Main CLI loop."""
@@ -175,7 +175,7 @@ class CLIHandler:
         print()
         print("Transfer commands:")
         print(
-            "  get [--inline] <file> - Download file from remote to local directory. --inline downloads and decrypts in 1 pass."
+            "  get [--1pass] <file> - Download file from remote to local directory. --1pass downloads and decrypts in 1 pass."
         )
         print("  put <file>            - Upload file from local directory to remote")
         print()
@@ -507,7 +507,7 @@ class CLIHandler:
             # Show download mode configuration
             print()
             print("Configuration:")
-            print(f"  Download mode: {'Inline' if self.__inline_mode else 'Two-Phase'}")
+            print(f"  Download mode: {'1-pass' if self.__down1pass_mode else '2-pass'}")
             print(f"  Local directory: {self.__local_dir}")
             print(f"  Saved download directory: {self.__auth.download_path}")
 
@@ -547,23 +547,23 @@ class CLIHandler:
         """
         if not args:
             print("Error: set requires arguments")
-            print("Usage: set download [--inline | --twophase]")
+            print("Usage: set download [--1pass | --2pass]")
             print("       set filehost <index>")
             return
 
         if args[0] == "download":
-            if "--inline" in args:
-                self.__inline_mode = True
-                print("Download mode: Inline (enabled)")
-                print("  Note: Inline mode is faster but not resumable if interrupted")
-            elif "--twophase" in args:
-                self.__inline_mode = False
-                print("Download mode: Two-Phase (default)")
-                print("  Note: Two-phase mode allows resumable downloads")
+            if "--1pass" in args:
+                self.__down1pass_mode = True
+                print("Download mode: 1-pass (enabled)")
+                print("  Note: 1-pass mode is faster but not resumable if interrupted")
+            elif "--2pass" in args:
+                self.__down1pass_mode = False
+                print("Download mode: 2-pass (default)")
+                print("  Note: 2-pass mode allows resumable downloads")
             else:
-                print("Usage: set download [--inline | --twophase]")
-                print("  --inline   - Enable inline download/decrypt")
-                print("  --twophase - Disable inline mode (default)")
+                print("Usage: set download [--1pass | --2pass]")
+                print("  --1pass   - Enable 1-pass download/decrypt")
+                print("  --2pass - Disable 1-pass mode (default)")
         elif args[0] == "filehost":
             if len(args) < 2:
                 print("Error: set filehost requires an index")
@@ -587,7 +587,7 @@ class CLIHandler:
                 print("Error: Index must be a number")
         else:
             print(f"Error: Unknown setting '{args[0]}'")
-            print("Usage: set download [--inline | --twophase]")
+            print("Usage: set download [--1pass | --2pass]")
             print("       set filehost <index>")
 
     def _print_help(self):
@@ -622,17 +622,15 @@ class CLIHandler:
         print("  Note: Use 'savedownload' to persist your download directory in config")
         print()
         print("Transfer:")
-        print("  get <file> [--inline] - Download file to local directory")
+        print("  get <file> [--1pass] - Download file to local directory")
         print("  put <path>   - Upload file from local directory to remote")
         print("  cancel [file] - Cancel active transfer (empty cancels all)")
         print("    cancel --uploads    - Cancel all uploads")
         print("    cancel --downloads  - Cancel all downloads")
         print("  mkdir <name> - Create remote directory")
-        print("  set download [--inline | --twophase] - Set download mode")
-        print(
-            "    --inline    - Enable inline download/decrypt (faster, not resumable)"
-        )
-        print("    --twophase  - Disable inline mode (default, resumable)")
+        print("  set download [--1pass | --2pass] - Set download mode")
+        print("    --1pass    - Enable 1-pass download/decrypt (faster, not resumable)")
+        print("    --2pass  - Disable 1-pass mode (default, resumable)")
         print()
         print("Other:")
         print("  exit         - Exit CLI")
@@ -856,26 +854,28 @@ class CLIHandler:
         """Download file from current directory.
 
         Args:
-            args: List containing the filename to download, optionally with --inline flag
+            args: List containing the filename to download, optionally with --1pass flag
         """
         if not args:
             print("Error: get requires a filename argument")
-            print("Usage: get <filename> [--inline]")
+            print("Usage: get <filename> [--1pass]")
             return
 
-        # Parse arguments: extract inline flag and filename
-        inline = False
-        if "--inline" in args:
-            inline = True
-            # Filename is the argument after --inline
-            inline_idx = args.index("--inline")
-            filename = args[inline_idx + 1] if inline_idx + 1 < len(args) else None
+        # Parse arguments: extract 1pass flag and filename
+        down1pass = False
+        if "--1pass" in args:
+            down1pass = True
+            # Filename is the argument after --1pass
+            down1pass_idx = args.index("--1pass")
+            filename = (
+                args[down1pass_idx + 1] if down1pass_idx + 1 < len(args) else None
+            )
         else:
             filename = args[0]
 
         if not filename:
             print("Error: get requires a filename argument")
-            print("Usage: get <filename> [--inline]")
+            print("Usage: get <filename> [--1pass]")
             return
 
         download_item = None
@@ -906,10 +906,10 @@ class CLIHandler:
 
             # For directories, download without progress bar (simpler)
             if type_node in ["Collection", "Repertoire"]:
-                mode_indicator = "[INLINE]" if inline else "[2PHASE]"
+                mode_indicator = "[1PASS]" if down1pass else "[2PASS]"
                 print(f"Downloading directory '{filename}' {mode_indicator}...")
                 download_item = self.__transfer_handler.ajouter_download_repertoire(
-                    target_item, self.__local_dir, inline=inline
+                    target_item, self.__local_dir, down1pass=down1pass
                 )
                 try:
                     download_item.wait()
@@ -924,13 +924,13 @@ class CLIHandler:
                     print(f"\nDownload cancelled: '{filename}'")
                     return
 
-                mode_indicator = "[INLINE]" if inline else "[2PHASE]"
+                mode_indicator = "[1PASS]" if down1pass else "[2PASS]"
                 print(f"Download complete: '{filename}' {mode_indicator}")
                 return
 
             # For files, use progress bar
             elif type_node == "Fichier":
-                mode_indicator = "[INLINE]" if inline else "[2PHASE]"
+                mode_indicator = "[1PASS]" if down1pass else "[2PASS]"
                 print(f"Downloading file '{filename}' {mode_indicator}...")
 
                 # Import only when needed (lazy import)
@@ -954,7 +954,7 @@ class CLIHandler:
 
                 # Download the file
                 download_item = self.__transfer_handler.ajouter_download_fichier(
-                    target_item, self.__local_dir, inline=inline
+                    target_item, self.__local_dir, down1pass=down1pass
                 )
 
                 # Wait for download to complete
@@ -976,7 +976,7 @@ class CLIHandler:
                     print(f"\nDownload cancelled: '{filename}'")
                     return
 
-                mode_indicator = "[INLINE]" if inline else "[2PHASE]"
+                mode_indicator = "[1PASS]" if down1pass else "[2PASS]"
                 print(f"Download complete: '{filename}' {mode_indicator}")
                 return
             else:

@@ -69,7 +69,7 @@ class ProgressManager:
         # Download queue and current transfer
         self.__download_queue: list = []
         self.__current_download: Optional[dict] = None
-        self.__download_queue_inline: dict = {}  # Track inline mode for each tuuid
+        self.__download_queue_down1pass: dict = {}  # Track 1-pass mode for each tuuid
 
         # Upload queue and current transfer
         self.__upload_queue: list = []
@@ -163,10 +163,10 @@ class ProgressManager:
         """
         with self.__lock:
             self.__download_queue.append(item)
-            # Track inline mode for this download
+            # Track 1-pass mode for this download
             if hasattr(item, "tuuid"):
-                self.__download_queue_inline[item.tuuid] = getattr(
-                    item, "inline", False
+                self.__download_queue_down1pass[item.tuuid] = getattr(
+                    item, "down1pass", False
                 )
 
     def remove_from_download_queue(self, tuuid: str):
@@ -181,9 +181,9 @@ class ProgressManager:
                 for item in self.__download_queue
                 if getattr(item, "tuuid", None) != tuuid
             ]
-            # Also remove inline tracking
-            if tuuid in self.__download_queue_inline:
-                del self.__download_queue_inline[tuuid]
+            # Also remove 1-pass tracking
+            if tuuid in self.__download_queue_down1pass:
+                del self.__download_queue_down1pass[tuuid]
 
     def set_current_download(self, item):
         """Set the current download in progress.
@@ -212,17 +212,17 @@ class ProgressManager:
         with self.__lock:
             return self.__current_download
 
-    def get_download_inline_mode(self, tuuid: str) -> bool:
-        """Get the inline mode for a specific download.
+    def get_download_down1pass_mode(self, tuuid: str) -> bool:
+        """Get the 1-pass mode for a specific download.
 
         Args:
             tuuid: The tuuid of the download
 
         Returns:
-            True if inline mode, False if two-phase mode
+            True if 1-pass mode, False if 2-pass mode
         """
         with self.__lock:
-            return self.__download_queue_inline.get(tuuid, False)
+            return self.__download_queue_down1pass.get(tuuid, False)
 
     # Upload queue management
     def add_to_upload_queue(self, item):
@@ -420,9 +420,9 @@ class ProgressManager:
         if self.__upload_transfer_callback is not None:
             self._invoke_callback(self.__upload_transfer_callback, filename, 100.0)
 
-    # Final progress methods for inline mode (always reach 100%)
+    # Final progress methods for 1-pass mode (always reach 100%)
     def set_download_transfer_final(self, filename: str):
-        """Set download transfer progress to final 100% when download completes (inline mode).
+        """Set download transfer progress to final 100% when download completes (1-pass mode).
 
         Args:
             filename: Name of the file being downloaded
@@ -433,7 +433,7 @@ class ProgressManager:
         self.mark_download_transfer_complete(filename)
 
     def set_download_decrypt_final(self, filename: str):
-        """Set download decryption progress to final 100% when decryption completes (inline mode).
+        """Set download decryption progress to final 100% when decryption completes (1-pass mode).
 
         Args:
             filename: Name of the file being decrypted

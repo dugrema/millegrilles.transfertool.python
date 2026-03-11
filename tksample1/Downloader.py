@@ -56,7 +56,9 @@ class CancelledDownloadException(Exception):
 
 
 class DownloadFichier:
-    def __init__(self, download_info, destination: pathlib.Path, inline: bool = False):
+    def __init__(
+        self, download_info, destination: pathlib.Path, down1pass: bool = False
+    ):
         self.__info = download_info
         self.cle_secrete = download_info["secret_key"]
         metadata = download_info["metadata"]
@@ -74,7 +76,7 @@ class DownloadFichier:
             self.format = key_info["format"]
 
         self.path_destination = destination
-        self.inline = inline
+        self.down1pass = down1pass
 
         self.download_complete = Event()
         self.__cancel_event = Event()
@@ -88,7 +90,7 @@ class DownloadFichier:
         self.__resume_event = Event()
         self.retry_count = 0
         self.last_error: Optional[Exception] = None
-        self.can_resume = not inline  # Inline mode cannot be paused
+        self.can_resume = not down1pass  # 1-pass mode cannot be paused
         self.partial_download_path: Optional[pathlib.Path] = None
 
     def cancel(self):
@@ -145,7 +147,7 @@ class DownloadFichier:
 
 
 class DownloadRepertoire:
-    def __init__(self, repertoire, destination: pathlib.Path, inline: bool = False):
+    def __init__(self, repertoire, destination: pathlib.Path, down1pass: bool = False):
         self.__info = repertoire
         metadata = repertoire["metadata"]
         self.cuuid = repertoire["tuuid"]
@@ -154,7 +156,7 @@ class DownloadRepertoire:
         self.__cancel_event = Event()
         self.repertoire = None
         self.destination = destination
-        self.inline = inline
+        self.down1pass = down1pass
 
         # Progress tracking attributes for GUI (same as DownloadFichier)
         self.taille_chiffree = 0  # Total encrypted size (calculated later)
@@ -415,13 +417,13 @@ class Downloader:
         self.__url_download = url_download
 
     def ajouter_download_fichier(
-        self, download, destination=None, inline: bool = False
+        self, download, destination=None, down1pass: bool = False
     ) -> DownloadFichier:
         destination = destination or self.__connexion.download_path
         if destination.exists() is False:
             destination.mkdir()
 
-        download_item = DownloadFichier(download, destination, inline=inline)
+        download_item = DownloadFichier(download, destination, down1pass=down1pass)
         self.__download_queue.append(download_item)
         self.__download_pret.set()
 
@@ -443,13 +445,13 @@ class Downloader:
         return download_item
 
     def ajouter_download_repertoire(
-        self, repertoire, destination=None, inline: bool = False
+        self, repertoire, destination=None, down1pass: bool = False
     ):
         destination = destination or self.__connexion.download_path
         if destination.exists() is False:
             destination.mkdir()
 
-        download_item = DownloadRepertoire(repertoire, destination, inline)
+        download_item = DownloadRepertoire(repertoire, destination, down1pass)
         self.__download_queue.append(download_item)
         self.__download_pret.set()
 
@@ -776,7 +778,7 @@ class Downloader:
                 if type_node == "Fichier":
                     try:
                         download_fichier = DownloadFichier(
-                            t, path_destination, item.inline
+                            t, path_destination, item.down1pass
                         )
                     except KeyError:
                         self.__logger.warning("Cle fichier manquante, skip : %s" % t)
@@ -839,7 +841,7 @@ class Downloader:
                 else:
                     # Download recursif des sous-repertoires
                     download_repertoire = DownloadRepertoire(
-                        t, path_destination, item.inline
+                        t, path_destination, item.down1pass
                     )
                     self.download_repertoire(download_repertoire)
 
@@ -891,14 +893,14 @@ class Downloader:
         self._remove_completed_download(item)
 
     def download_fichier(self, item: DownloadFichier):
-        """Dispatch to appropriate download method based on inline flag."""
-        if item.inline:
-            self._download_fichier_inline(item)
+        """Dispatch to appropriate download method based on down1pass flag."""
+        if item.down1pass:
+            self._download_fichier_down1pass(item)
         else:
-            self._download_fichier_twophase(item)
+            self._download_fichier_down2pass(item)
 
-    def _download_fichier_inline(self, item: DownloadFichier):
-        """Download and decrypt file in single pass (inline mode)."""
+    def _download_fichier_down1pass(self, item: DownloadFichier):
+        """Download and decrypt file in single pass (1-pass mode)."""
         self.__connexion.connect_event.wait()
         if self.__stop_event.is_set():
             raise Exception("Stopping")
@@ -925,7 +927,7 @@ class Downloader:
         path_reception_work = pathlib.Path(item.path_destination, item.nom + ".work")
 
         self.__logger.debug(
-            "Debut inline download fichier %s (taille : %d)"
+            "Debut 1-pass download fichier %s (taille : %d)"
             % (path_reception_work, item.taille_chiffree)
         )
 
@@ -983,9 +985,9 @@ class Downloader:
                 raise FileExistsError()
             path_reception_work.rename(path_reception)
 
-            self.__logger.debug("Fichier %s dechiffre OK (inline)" % path_reception)
+            self.__logger.debug("Fichier %s dechiffre OK (1-pass)" % path_reception)
 
-            # Set final progress to 100% for inline mode
+            # Set final progress to 100% for 1-pass mode
             if self.__progress_manager:
                 self.__progress_manager.set_download_transfer_final(item.nom)
 
@@ -1001,8 +1003,8 @@ class Downloader:
                 path_reception_work.unlink()
             raise
 
-    def _download_fichier_twophase(self, item: DownloadFichier):
-        """Download then decrypt file (traditional two-phase mode) with pause/resume support."""
+    def _download_fichier_down2pass(self, item: DownloadFichier):
+        """Download then decrypt file (traditional 2-pass mode) with pause/resume support."""
         self.__connexion.connect_event.wait()
         if self.__stop_event.is_set():
             raise Exception("Stopping")

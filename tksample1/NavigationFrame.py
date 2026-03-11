@@ -49,8 +49,8 @@ class NavigationFrame(tk.Frame):
         self.__connexion = connexion
         self.__repertoire = None
 
-        # Add inline mode toggle
-        self.__inline_var = tk.BooleanVar(value=False)
+        # Add 1-pass mode toggle
+        self.__down1pass_var = tk.BooleanVar(value=False)
 
         # Add download directory header
         self.__frame_download_dir = tk.Frame(master=self)
@@ -98,14 +98,14 @@ class NavigationFrame(tk.Frame):
         )
         self.__btn_refresh.grid(row=0, column=4)
 
-        # Add inline mode checkbox
-        self.__chk_inline = ttk.Checkbutton(
+        # Add 1-pass mode checkbox
+        self.__chk_down1pass = ttk.Checkbutton(
             master=self.__frame_actions,
-            text="Inline",
-            variable=self.__inline_var,
-            command=self.__on_inline_toggle,
+            text="1-pass",
+            variable=self.__down1pass_var,
+            command=self.__on_down1pass_toggle,
         )
-        self.__chk_inline.grid(row=0, column=5, padx=5)
+        self.__chk_down1pass.grid(row=0, column=5, padx=5)
 
         self.__frame_breadcrumb = tk.Frame(master=self)
         self.__breadcrumb_path = pathlib.Path("Favoris/")
@@ -209,11 +209,11 @@ class NavigationFrame(tk.Frame):
         """Handle download button click."""
         selection = self.dirlist.selection()
         for tuuid in selection:
-            inline_mode = self.__inline_var.get()
-            self.__navigation.ajouter_download(tuuid, inline=inline_mode)
+            down1pass_mode = self.__down1pass_var.get()
+            self.__navigation.ajouter_download(tuuid, down1pass=down1pass_mode)
 
-    def __on_inline_toggle(self):
-        """Handle inline mode toggle - could update UI indicators."""
+    def __on_down1pass_toggle(self):
+        """Handle 1-pass mode toggle - could update UI indicators."""
         # Optional: Update status bar or add visual indicator
         pass
 
@@ -349,5 +349,5 @@ class NavigationFrame(tk.Frame):
         if values[1] != "Fichier":
             self.__navigation.changer_cuuid(tuuid)
         else:
-            inline_mode = self.__inline_var.get()
-            self.__navigation.ajouter_download(tuuid, inline=inline_mode)
+            down1pass_mode = self.__down1pass_var.get()
+            self.__navigation.ajouter_download(tuuid, down1pass=down1pass_mode)

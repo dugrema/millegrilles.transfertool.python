@@ -425,14 +425,14 @@ class TransferFrame(tk.Frame):
         if isinstance(item, dict):
             filename = item.get("filename", "File")
             tuuid = item.get("tuuid", str(id(item)))
-            inline = item.get("inline", False)
+            down1pass = item.get("down1pass", False)
             state = item.get("state", None)
         else:
             filename = getattr(item, "nom", "File")
             tuuid = getattr(item, "tuuid", str(id(item)))
-            inline = getattr(item, "inline", False)
+            down1pass = getattr(item, "down1pass", False)
             state = getattr(item, "state", None)
-        mode_label = "INLINE" if inline else "2PHASE"
+        mode_label = "1PASS" if down1pass else "2PASS"
 
         # Prefix for current download
         prefix = "→ " if is_current else "  • "
@@ -466,7 +466,7 @@ class TransferFrame(tk.Frame):
             can_pause = (
                 getattr(item, "state") == DownloadState.DOWNLOADING
                 and getattr(item, "can_resume", False)
-                and not inline
+                and not down1pass
             )
 
         is_paused = state == DownloadState.PAUSED

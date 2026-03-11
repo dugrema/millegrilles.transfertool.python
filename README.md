@@ -55,10 +55,10 @@ The application automatically detects GUI availability and falls back to CLI mod
 | `ls [path]` | List directory contents (current or specified path) |
 | `cd <path>` | Change directory (use `..` to go up one level) |
 | `pwd` | Print current working directory |
-| `get <remote> [--inline]` | Download file from server (use `--inline` for single-pass download) |
+| `get <remote> [--1pass]` | Download file from server (use `--1pass` for 1-pass download) |
 | `put <local> [remote]` | Upload file to server (optional remote filename) |
 | `mkdir <path>` | Create a new directory on the server |
-| `set download [--inline \| --twophase]` | Set download mode (`--inline`: faster, not resumable; `--twophase`: default, resumable) |
+| `set download [--1pass \| --2pass]` | Set download mode (`--1pass`: faster, not resumable; `--2pass`: default, resumable) |
 | `exit` or `quit` | Exit the CLI |
 
 #### Local Commands
@@ -81,13 +81,13 @@ The application automatically detects GUI availability and falls back to CLI mod
 
 The CLI supports two download modes for encrypted files:
 
-**Two-Phase Mode (Default)**
+**2-pass Mode (Default)**
 - Downloads encrypted file to a `.work` file, then decrypts it
 - Resumable if download is interrupted
 - Requires 2x disk I/O (download + decrypt)
 - Use when network reliability is a concern
 
-**Inline Mode (Single-Pass)**
+**1-pass Mode**
 - Downloads and decrypts simultaneously in a single pass
 - Faster overall transfer time (decryption is negligible)
 - Requires 1x disk I/O (download/decrypt combined)
@@ -98,18 +98,18 @@ The CLI supports two download modes for encrypted files:
 #### Examples
 
 ```bash
-# Download with two-phase mode (default, resumable)
+# Download with 2-pass mode (default, resumable)
 > get filename.txt
 
-# Download with inline mode (faster, not resumable)
-> get filename.txt --inline
+# Download with 1-pass mode (faster, not resumable)
+> get filename.txt --1pass
 
-# Enable inline mode for all subsequent downloads
-> set download --inline
+# Enable 1-pass mode for all subsequent downloads
+> set download --1pass
 > get anotherfile.txt
 
-# Return to two-phase mode
-> set download --twophase
+# Return to 2-pass mode
+> set download --2pass
 
 # Check current download mode
 > status
@@ -133,11 +133,11 @@ python3 -m tksample1 --cli --verbose
 # Use custom download directory
 python3 -m tksample1 --cli --downdir /home/user/downloads
 
-# CLI inline download examples (interactive mode)
-> get largefile.bin --inline      # Fast download, not resumable
-> get smallfile.txt                # Default two-phase, resumable
-> set download --inline            # Enable inline mode globally
-> get anotherfile.txt              # Uses inline mode
+# CLI 1-pass download examples (interactive mode)
+> get largefile.bin --1pass      # Fast download, not resumable
+> get smallfile.txt                # Default 2-pass, resumable
+> set download --1pass            # Enable 1-pass mode globally
+> get anotherfile.txt              # Uses 1-pass mode
 > status                           # Shows current download mode
 ```
 
