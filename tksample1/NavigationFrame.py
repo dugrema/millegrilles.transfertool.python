@@ -14,6 +14,7 @@ from tkinter import ttk
 from typing import Optional
 
 import pytz
+
 from tksample1.AuthUsager import Authentification
 
 
@@ -220,7 +221,9 @@ class NavigationFrame(tk.Frame):
         """Handle upload button click."""
         import tkinter.filedialog
 
-        fichiers = tkinter.filedialog.askopenfilenames()
+        fichiers = tkinter.filedialog.askopenfilenames(
+            initialdir=str(self.__connexion.download_path)
+        )
         for fichier in fichiers:
             self.__navigation.upload_fichier(fichier)
 
@@ -228,7 +231,9 @@ class NavigationFrame(tk.Frame):
         """Handle upload directory button click."""
         import tkinter.filedialog
 
-        path_dir = tkinter.filedialog.askdirectory()
+        path_dir = tkinter.filedialog.askdirectory(
+            initialdir=str(self.__connexion.download_path)
+        )
         if path_dir != "":
             self.__navigation.upload_directory(path_dir)
 
