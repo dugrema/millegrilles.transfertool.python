@@ -796,7 +796,7 @@ class Uploader:
                         "transfer", current
                     ),
                 )
-                url_put = f"{self.__connexion.filehost_url}/files/{fuuid}/{position}"
+                url_put = f"{self.__connexion.filehost_url.geturl()}/files/{fuuid}/{position}"
                 response = self.__https_session.put(url_put, data=stream)
                 response.raise_for_status()
 
@@ -863,7 +863,7 @@ class Uploader:
             attachments={"cle": transaction_cle},
         )
 
-        url_confirmation = f"{self.__connexion.filehost_url}/files/{fuuid}"
+        url_confirmation = f"{self.__connexion.filehost_url.geturl()}/files/{fuuid}"
         confirmation_response = self.__https_session.post(url_confirmation, timeout=300)
 
         if confirmation_response.status_code == 401:

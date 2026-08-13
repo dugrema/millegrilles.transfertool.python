@@ -922,7 +922,7 @@ class Downloader:
             https_session.cert = None
             self.__https_session = https_session
 
-        url_fichier = f"{self.__connexion.filehost_url}/files/{item.fuuid}"
+        url_fichier = f"{self.__connexion.filehost_url.geturl()}/files/{item.fuuid}"
         path_reception = pathlib.Path(item.path_destination, item.nom)
         path_reception_work = pathlib.Path(item.path_destination, item.nom + ".work")
 
@@ -1026,7 +1026,7 @@ class Downloader:
             https_session.cert = None
             self.__https_session = https_session
 
-        url_fichier = f"{self.__connexion.filehost_url}/files/{item.fuuid}"
+        url_fichier = f"{self.__connexion.filehost_url.geturl()}/files/{item.fuuid}"
 
         path_reception = pathlib.Path(item.path_destination, item.nom)
         path_reception_work = pathlib.Path(item.path_destination, item.nom + ".work")

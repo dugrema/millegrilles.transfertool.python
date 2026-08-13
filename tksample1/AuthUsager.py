@@ -8,6 +8,7 @@ import time
 from threading import Event, Lock, Thread
 from typing import Optional, Union
 from urllib import parse
+from urllib.parse import ParseResult
 
 import requests
 import socketio
@@ -23,6 +24,7 @@ from millegrilles_messages.messages.ValidateurCertificats import (
     ValidateurCertificatCache,
 )
 from millegrilles_messages.messages.ValidateurMessage import ValidateurMessage
+from tksample1.Structs import InstanceFilehost
 
 
 class Authentification:
@@ -91,8 +93,10 @@ class Authentification:
         self.connect_event = Event()
 
         self.__instance_id: Optional[str] = None
+        self.__instance_filehosts: Optional[dict[str, InstanceFilehost]] = None
         self.__filehosts: Optional[list[dict]] = None
         self.__filehost_idx = 0
+        self.__filehost_url: Optional[ParseResult] = None
 
         # Confirmation code for CLI authentication flow
         self.__confirmation_code: Optional[str] = None
@@ -142,11 +146,31 @@ class Authentification:
         return self.__instance_id
 
     @property
-    def filehost_url(self):
-        url_external = self.__filehosts[self.__filehost_idx]["url_external"]
-        if url_external.endswith("/"):
-            url_external = url_external[0:-1]
-        return f"{url_external}/filehost"
+    def filehost_url(self) -> Optional[ParseResult]:
+        # return self.__filehost_url
+        # url_external = self.__filehosts[self.__filehost_idx]["url_external"]
+        # if url_external.endswith("/"):
+        #     url_external = url_external[0:-1]
+        # return f"{url_external}/filehost"
+        try:
+            filehost = self.__filehosts[self.__filehost_idx]
+        except IndexError:
+            return None
+
+        try:
+            url_value = filehost['url_external']
+            url_external = parse.urlparse(url_value)
+        except KeyError:
+            url_value = None
+
+        if not url_value:
+            instance_id: str = filehost['instance_id']
+            try:
+                url_external = self.__instance_filehosts[instance_id].filehost_path
+            except TypeError:
+                url_external = None
+
+        return url_external
 
     def emit(self, *args, **kwargs):
         with self.__lock_emit:
@@ -424,28 +448,30 @@ class Authentification:
                     return
 
                 try:
-                    urls_collection = self.parse_fiche()
+                    self.__instance_filehosts = self.parse_fiche()
+                    url_connection_hostname = parse.urlparse(self.url_fiche_serveur.geturl()).hostname
+                    instance_info = [i for i in self.__instance_filehosts.values() if i.url.hostname == url_connection_hostname].pop()
+                    instance_id = instance_info.instance_id
+                    url_connection = instance_info.url
                 except Exception:
                     self.__logger.exception("Erreur parsing fiche, abort")
                     self.__pret.clear()
                     continue
 
-                for url_collection in urls_collection:
-                    try:
-                        self.connecter(url_collection)
-                        break
-                    except Exception as e:
-                        self.__logger.exception(
-                            "Echec authentification, essayer prochain serveur"
-                        )
-                        if self.__sio:
-                            self.__sio.disconnect()
-                        self.__sio = None
-                        if self.auth_frame is not None:
-                            if hasattr(self.auth_frame, "set_connection_status"):
-                                self.auth_frame.set_connection_status(connected=False)  # type: ignore
-                            elif hasattr(self.auth_frame, "set_etat"):
-                                self.auth_frame.set_etat(False)  # type: ignore
+                try:
+                    self.connecter(url_connection)
+                except Exception as e:
+                    self.__logger.exception(
+                        "Echec authentification, essayer prochain serveur"
+                    )
+                    if self.__sio:
+                        self.__sio.disconnect()
+                    self.__sio = None
+                    if self.auth_frame is not None:
+                        if hasattr(self.auth_frame, "set_connection_status"):
+                            self.auth_frame.set_connection_status(connected=False)  # type: ignore
+                        elif hasattr(self.auth_frame, "set_etat"):
+                            self.auth_frame.set_etat(False)  # type: ignore
 
                 if self.__sio is not None:
                     self.connect_event.set()  # Declarer la connexion prete a l'utilisation
@@ -461,33 +487,51 @@ class Authentification:
                 self.__stop_event.set()
                 raise Exception("Authentification thread crash")
 
-    def parse_fiche(self) -> Union[list, parse.ParseResult]:
+    def parse_fiche(self) -> dict[str, InstanceFilehost]:
         url = self.url_fiche_serveur.geturl()  # type: ignore
         reponse = requests.get(url, verify=False)
         reponse_json = reponse.json()
         contenu = json.loads(reponse_json["contenu"])
 
-        # url_app = parse.urlparse('https://bureau1.maple.maceroc.com:443/millegrilles')
-        # return [url_app]
+        # Map all known internal filehost applications
+        filehosts_app_map = dict()
+        try:
+            for instance_id, app_info in contenu['applicationsV2']['filehost']['instances'].items():
+                filehosts_app_map[instance_id] = app_info['pathname']
+        except KeyError:
+            pass  # No managed filehosts
 
+        # Extract instance paths, also map internal filehosts by instance_id
         instances = contenu["instances"]
-        instances_collection = list()
+        instances_dict: dict[str, InstanceFilehost] = dict()
         for instance_id, instance in instances.items():
-            # app_path = app_instance['pathname']
-            # instance = instances[instance_id]
             app_path = "/millegrilles"
-            # port_https = instance['ports']['https']
-            port_tls = instance["ports"]["https"] + 1
-            for domaine_instance in instance["domaines"]:
-                url_app = parse.urlparse(
-                    f"https://{domaine_instance}:{port_tls}{app_path}"
+            port_https = instance["ports"]["https"]
+            port_mtls = instance["ports"]["https_mtls"]
+
+            try:
+                filehost_path = filehosts_app_map[instance_id]
+            except KeyError:
+                filehost_path = None
+
+            try:
+                domain = instance["domaines"][0]
+            except IndexError:
+                continue  # No hostname, skip
+
+            url_app = parse.urlparse(
+                f"https://{domain}:{port_mtls}{app_path}"
+            )
+
+            instance_filehost = InstanceFilehost(instance_id, url_app, None)
+            if filehost_path:
+                url_filehost = parse.urlparse(
+                    f"https://{domain}:{port_https}{filehost_path}"
                 )
-                instances_collection.append(url_app)
+                instance_filehost.filehost_path = url_filehost
+            instances_dict[instance_id] = instance_filehost
 
-                if self.url_fiche_serveur.hostname == domaine_instance:
-                    return [url_app]
-
-        return instances_collection
+        return instances_dict
 
     def connecter(self, url: parse.ParseResult):
         self.__url_collection = url
@@ -526,7 +570,7 @@ class Authentification:
         filehosts = [
             f
             for f in filehost_content["list"]
-            if f.get("url_external") is not None and f["deleted"] is False
+            if f["deleted"] is False and (f.get("url_external") is not None or f.get("instance_id") is not None)
         ]
         self.__filehosts = filehosts
 
@@ -558,7 +602,7 @@ class Authentification:
             if response_content.get("ok") is True:
                 self.__logger.info(f"Switch to filehost_id {filehost_response}")
 
-        print(f"Filehost url: {self.filehost_url}")
+        print(f"Filehost url: {self.filehost_url.geturl()}")
 
     def socketio_requete_certificat(self, url: parse.ParseResult):
         connexion_socketio = f"https://{url.hostname}"
@@ -872,7 +916,7 @@ class Authentification:
             Constantes.KIND_COMMANDE, {}, "filehost", True, "authenticate"
         )
         auth_message["millegrille"] = self.formatteur.enveloppe_ca.certificat_pem
-        url_auth = f"{self.filehost_url}/authenticate"
+        url_auth = f"{self.filehost_url.geturl()}/authenticate"
         auth_response = http_session.post(url_auth, json=auth_message)
         auth_response.raise_for_status()
 
