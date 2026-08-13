@@ -735,6 +735,7 @@ class Uploader:
             self.__progress_manager.reset_upload_transfer_complete(upload.path.name)
 
         with tempfile.NamedTemporaryFile(dir=self.__tmp_path, delete=False) as tmpfile:
+            self.__logger.info("Using temp file to upload: %s", tmpfile.name)
             with open(upload.path, "rb") as fichier:
                 while cipher.hachage is None:
                     # Preparer chiffrage
@@ -1030,7 +1031,10 @@ def prepare_file(
             current_output_size += len(chunk)
             fp_out.write(chunk)
             if on_progress:
-                on_progress(len(chunk))
+                try:
+                    on_progress(len(chunk))
+                except ZeroDivisionError:
+                    pass  # Skip
 
 
 def path_key(item: pathlib.Path):

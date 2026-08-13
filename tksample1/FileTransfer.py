@@ -117,6 +117,9 @@ class TransferHandler:
         """
         return self.downloader.cancel_download(tuuid)
 
+    def creer_collection(self, nom: str, cuuid_parent: Optional[str] = None) -> str:
+        return self.uploader.creer_collection(nom, cuuid_parent)
+
     def thread_status(self):
         """
         Background thread for updating transfer status.
