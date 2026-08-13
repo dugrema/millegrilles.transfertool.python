@@ -193,6 +193,10 @@ class Authentification:
         """
         return self.__filehosts
 
+    @property
+    def get_instances(self):
+        return self.__instance_filehosts
+
     def get_current_filehost_idx(self) -> int:
         """Return the index of currently selected filehost."""
         return self.__filehost_idx

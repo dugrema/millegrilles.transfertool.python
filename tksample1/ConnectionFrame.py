@@ -10,6 +10,8 @@ from tkinter import messagebox, ttk
 from typing import Optional
 from urllib.parse import urlparse
 
+from tksample1.Structs import InstanceFilehost
+
 
 class ConnectionFrame(tk.Frame):
     """GUI frame for connection management controls."""
@@ -196,13 +198,18 @@ class ConnectionFrame(tk.Frame):
     def populate_filehost_dropdown(self):
         """Populate filehost dropdown with available filehosts."""
         filehosts = self.auth.get_filehosts()
+        instances = self.auth.get_instances
         if filehosts:
             self.filehost_combo.config(state="normal")
             self.filehost_combo.delete(0, "end")
 
             options = []
             for idx, fh in enumerate(filehosts):
-                url = fh.get("url_external", "Unknown")
+                url = fh.get("url_external")
+                instance_id = fh.get("instance_id")
+                if not url and instance_id:
+                    instance = instances[instance_id]
+                    url = instance.filehost_path.geturl()
                 hostname = urlparse(url).hostname or "Unknown"
                 marker = (
                     " (auto)" if idx == self.auth.get_current_filehost_idx() else ""
@@ -243,3 +250,7 @@ class ConnectionFrame(tk.Frame):
         """
         messagebox.showerror("Erreur", message)
         self.__logger.error(message)
+
+    @property
+    def instance_filehosts(self) -> dict[str, InstanceFilehost]:
+        return self.auth.get_instances()
