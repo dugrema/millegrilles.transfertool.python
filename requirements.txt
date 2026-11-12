@@ -5,4 +5,4 @@ wakepy
 tqdm>=4.65.0
 
 --extra-index-url https://libs.millegrilles.com/python/dist
-millegrilles_messages>=2026.4.13
+millegrilles_messages>=2026.6.30
